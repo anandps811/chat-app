@@ -1,0 +1,5 @@
+# Ignore entire directories by adding a trailing slash
+logs/
+node_modules/
+.vscode/
+.env*
