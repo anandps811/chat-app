@@ -18,6 +18,25 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
-      }
+      },
+      build: {
+        outDir: 'dist',
+        sourcemap: mode === 'development',
+        minify: mode === 'production' ? 'esbuild' : false,
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+              'query-vendor': ['@tanstack/react-query'],
+              'socket-vendor': ['socket.io-client'],
+            },
+          },
+        },
+        chunkSizeWarningLimit: 1000,
+      },
+      preview: {
+        port: 3000,
+        host: '0.0.0.0',
+      },
     };
 });

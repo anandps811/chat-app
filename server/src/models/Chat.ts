@@ -1,6 +1,15 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
-
+// Message subdocument schema
+const messageSubSchema = new Schema({
+  senderId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  content: String,
+  imageUrl: String,
+  voiceMessageUrl: String,
+  voiceMessageDuration: Number,
+  readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
+  likedBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
+}, { timestamps: true });
 
 export interface IChat extends Document {
   participants: Types.ObjectId[];
@@ -9,9 +18,8 @@ export interface IChat extends Document {
   lastMessage?: Types.ObjectId;
   lastMessageAt?: Date;
   deletedBy?: Types.ObjectId[];
+  messages: Types.DocumentArray<any>;
 }
-
-
 
 const chatSchema = new Schema<IChat>(
   {
@@ -21,6 +29,7 @@ const chatSchema = new Schema<IChat>(
     lastMessage: { type: Schema.Types.ObjectId, ref: "Message" },
     lastMessageAt: Date,
     deletedBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    messages: [messageSubSchema],
   },
   { timestamps: true }
 );

@@ -1,7 +1,6 @@
 import { Response } from 'express';
 import mongoose from 'mongoose';
 import Chat from '../models/Chat.js';
-import Group from '../models/Group.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import {
   findOrCreateChat,
@@ -58,9 +57,24 @@ export const getUserChats = asyncHandler(async (req: AuthRequest, res: Response)
       deletedBy: { $ne: currentUserId }, // Exclude chats deleted by current user
     })
       .populate('participants', 'name picture email')
-      .populate('messages.senderId', 'name picture')
       .sort({ lastMessageAt: -1, updatedAt: -1 })
       .lean();
+
+    // Manually populate message senderIds since they're subdocuments
+    // We need to fetch user data for each message's senderId
+    const User = (await import('../models/User.js')).default;
+    for (const chat of chats) {
+      if (chat.messages && Array.isArray(chat.messages)) {
+        for (const message of chat.messages) {
+          if (message.senderId && typeof message.senderId === 'object' && message.senderId.toString) {
+            const sender = await User.findById(message.senderId).select('name picture').lean();
+            if (sender) {
+              message.senderId = sender;
+            }
+          }
+        }
+      }
+    }
 
     // Format chats to include the other participant's info
     const formattedChats = chats.map((chat: any) => {
@@ -127,21 +141,25 @@ export const getChatMessages = asyncHandler(async (req: AuthRequest, res: Respon
     throw new UnauthorizedError('Unauthorized');
   }
 
-  const { chat, isGroup, error } = await verifyChatAccess(chatId, currentUserId);
+  const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
     throw new Error(error.message);
   }
 
-    // Get messages from embedded array in chat/group document
-    let chatWithMessages;
-    if (isGroup) {
-      chatWithMessages = await Group.findById(chatId)
-        .populate('messages.senderId', 'name picture')
-        .lean();
-    } else {
-      chatWithMessages = await Chat.findById(chatId)
-        .populate('messages.senderId', 'name picture')
-        .lean();
+    // Get messages from embedded array in chat document
+    const chatWithMessages = await Chat.findById(chatId).lean();
+    
+    // Manually populate message senderIds since they're subdocuments
+    const User = (await import('../models/User.js')).default;
+    if (chatWithMessages && chatWithMessages.messages && Array.isArray(chatWithMessages.messages)) {
+      for (const message of chatWithMessages.messages) {
+        if (message.senderId && typeof message.senderId === 'object' && message.senderId.toString) {
+          const sender = await User.findById(message.senderId).select('name picture').lean();
+          if (sender) {
+            message.senderId = sender;
+          }
+        }
+      }
     }
 
   if (!chatWithMessages) {
@@ -182,7 +200,7 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response):
     throw new ValidationError('Message content, image, or voice message is required');
   }
 
-  const { chat, isGroup, error } = await verifyChatAccess(chatId, currentUserId);
+  const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
     throw new Error(error.message);
   }
@@ -193,7 +211,7 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response):
       imageUrl,
       voiceMessageUrl,
       voiceMessageDuration,
-    }, isGroup);
+    });
 
   res.status(201).json({ message: savedMessage });
 });
@@ -262,14 +280,9 @@ export const deleteChat = asyncHandler(async (req: AuthRequest, res: Response): 
     throw new UnauthorizedError('Unauthorized');
   }
 
-  const { chat, isGroup, error } = await verifyChatAccess(chatId, currentUserId);
+  const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
     throw new Error(error.message);
-  }
-
-  // Groups cannot be deleted this way
-  if (isGroup) {
-    throw new ValidationError('Groups cannot be deleted. Leave the group instead.');
   }
 
     // Add current user to deletedBy array if not already present

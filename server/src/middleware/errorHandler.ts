@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { env } from '../config/env.js';
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
+import { AuthRequest } from './authMiddleware.js';
 
 /**
  * Interface for error response
@@ -201,10 +202,10 @@ export const errorHandler = (
  * Usage: export const handler = asyncHandler(async (req, res) => { ... })
  */
 export const asyncHandler = (
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+  fn: (req: Request | AuthRequest, res: Response, next: NextFunction) => Promise<void> | void
 ) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    Promise.resolve(fn(req as Request | AuthRequest, res, next)).catch(next);
   };
 };
 

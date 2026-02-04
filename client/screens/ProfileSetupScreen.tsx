@@ -1,94 +1,137 @@
 
-import React from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { useUpdateProfile } from '../hooks';
 
-interface Props {
-  onComplete: () => void;
-  onSkip: () => void;
-  onBack: () => void;
-}
-
-const ProfileSetupScreen: React.FC<Props> = ({ onComplete, onSkip, onBack }) => {
+const ProfileSetupScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [name, setName] = useState(user?.name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [bio, setBio] = useState('');
+  const updateProfileMutation = useUpdateProfile();
   const avatarUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuBSjjMCtxApnxYra-usrxJv34m0ZNgosVhvM5ZuJzfZl9fsVgK4uJW-9TpWI1sWNHJPz7R0nMMeAVyLkwEdvTWPb4kYE-m7Jeo5zAN2S8suSSWvpyXM1UBMFEJcztioMP-7h3MfyUkDXAzRTJrxt4PY3HnIXLl_fOjLaF4QKesdC7ROcJji2yHAYlR9pz7ol7Wa0guMlt4N-rDANVgbCVC6uwp2yqnoQPcfoCzMJPNRg25nW8ohiDZQowpn5O-JiRs_B6iLz8pyc23p";
 
+  const handleComplete = () => {
+    updateProfileMutation.mutate(
+      {
+        name: name || undefined,
+        email: email || undefined,
+        bio: bio || undefined,
+      },
+      {
+        onSuccess: () => {
+          navigate('/chats');
+        },
+      }
+    );
+  };
+
   return (
-    <div className="relative flex h-full w-full flex-col bg-background-dark text-white">
-      {/* Top Nav Bar */}
-      <div className="sticky top-0 z-50 flex items-center bg-background-dark/80 backdrop-blur-md px-4 py-3 justify-between border-b border-white/5">
+    <div className="relative flex h-full w-full flex-col bg-ivory p-4 md:p-6 lg:p-8 xl:p-12 text-charcoal transition-all duration-300">
+      {/* Decorative Blur Elements */}
+      <div className="fixed top-0 right-0 w-32 h-32 md:w-48 md:h-48 lg:w-64 lg:h-64 bg-primary/5 rounded-full -mr-16 -mt-16 md:-mr-24 md:-mt-24 lg:-mr-32 lg:-mt-32 blur-3xl pointer-events-none"></div>
+      <div className="fixed bottom-0 left-0 w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80 bg-primary/5 rounded-full -ml-24 -mb-24 md:-ml-32 md:-mb-32 lg:-ml-40 lg:-mb-40 blur-3xl pointer-events-none"></div>
+
+      {/* Navigation */}
+      <nav className="flex items-center pt-2 md:pt-4 pb-2 md:pb-4 justify-between">
         <button 
-          onClick={onBack}
-          className="text-primary flex size-10 items-center justify-start cursor-pointer"
+          onClick={() => navigate('/')}
+          className="text-charcoal flex size-10 md:size-12 shrink-0 items-center justify-start hover:opacity-70 transition-opacity"
         >
-          <span className="material-symbols-outlined">chevron_left</span>
+          <span className="material-symbols-outlined text-xl md:text-2xl">arrow_back_ios</span>
         </button>
-        <h2 className="text-white text-[17px] font-semibold leading-tight tracking-tight flex-1 text-center">Profile Setup</h2>
-        <div className="size-10 flex items-center justify-end">
-          <button onClick={onSkip} className="text-primary text-sm font-medium">Skip</button>
+        <button 
+          onClick={() => navigate('/chats')}
+          className="text-charcoal text-sm md:text-base font-medium hover:underline font-display"
+        >
+          Skip
+        </button>
+      </nav>
+
+      {/* Header */}
+      <header className="px-2 md:px-4 lg:px-6 pt-8 md:pt-12 lg:pt-16 pb-6 md:pb-8 lg:pb-10">
+        <h1 className="tracking-tight text-3xl md:text-4xl lg:text-5xl xl:text-[56px] font-bold leading-tight serif-italic">
+          Create your profile
+        </h1>
+        <p className="text-charcoal/60 text-xs md:text-sm lg:text-base font-display mt-2 md:mt-3 uppercase tracking-[0.2em]">
+          Let people know who you are
+        </p>
+      </header>
+
+      {/* Profile Avatar */}
+      <div className="flex flex-col items-center pt-4 md:pt-6 lg:pt-8 pb-4 md:pb-6">
+        <div className="relative group">
+          <div 
+            className="bg-gray-200 bg-center bg-no-repeat aspect-square bg-cover rounded-full h-20 w-20 md:h-24 md:w-24 lg:h-28 lg:w-28 border-2 border-charcoal/10 shadow-lg"
+            style={{ backgroundImage: `url("${avatarUrl}")` }}
+          />
+          <div className="absolute bottom-0 right-0 bg-charcoal p-1.5 md:p-2 rounded-full border-2 border-ivory flex items-center justify-center text-ivory cursor-pointer shadow-lg hover:opacity-90 transition-all">
+            <span className="material-symbols-outlined text-base md:text-lg">add_a_photo</span>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-10">
-        {/* Profile Header */}
-        <div className="flex flex-col items-center pt-10 pb-6 px-6">
-          <div className="relative group">
-            <div 
-              className="bg-gray-800 bg-center bg-no-repeat aspect-square bg-cover rounded-full h-32 w-32 border-4 border-background-dark shadow-xl"
-              style={{ backgroundImage: `url("${avatarUrl}")` }}
-            />
-            <div className="absolute bottom-0 right-0 bg-primary p-2 rounded-full border-4 border-background-dark flex items-center justify-center text-white cursor-pointer shadow-lg">
-              <span className="material-symbols-outlined text-[20px]">add_a_photo</span>
-            </div>
-          </div>
-          <div className="mt-8 text-center">
-            <h1 className="font-playfair text-white text-4xl font-bold tracking-tight mb-2">Create your profile</h1>
-            <p className="text-slate-400 text-base font-normal">Let people know who you are.</p>
-            <div className="inline-flex mt-4 items-center gap-1.5 px-3 py-1 bg-primary/10 rounded-full">
-              <span className="text-primary text-[11px] font-bold uppercase tracking-widest">Step 1 of 3</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Form Fields */}
-        <div className="flex flex-col gap-6 px-6">
-          <div className="flex flex-col gap-2">
-            <label className="text-slate-500 text-xs font-bold uppercase tracking-widest px-1">Full Name</label>
-            <input 
-              className="w-full rounded-xl text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-slate-800 bg-[#192633] h-14 placeholder:text-[#92adc9] px-4 text-base font-normal leading-normal transition-all" 
-              placeholder="Enter your name" 
-              type="text" 
-              defaultValue="Julian Casablancas"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-slate-500 text-xs font-bold uppercase tracking-widest px-1">Email Address</label>
-            <input 
-              className="w-full rounded-xl text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-slate-800 bg-[#192633] h-14 placeholder:text-[#92adc9] px-4 text-base font-normal leading-normal transition-all" 
-              placeholder="hello@example.com" 
-              type="email"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-slate-500 text-xs font-bold uppercase tracking-widest px-1">Bio</label>
-            <textarea 
-              className="w-full rounded-xl text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-slate-800 bg-[#192633] placeholder:text-[#92adc9] p-4 text-base font-normal leading-normal transition-all resize-none" 
-              placeholder="Tell us about yourself..." 
-              rows={4}
-            />
-          </div>
-        </div>
-
-        {/* Footer Action */}
-        <div className="mt-12 px-6">
-          <button 
-            onClick={onComplete}
-            className="w-full bg-primary hover:bg-primary/90 text-white py-4 px-6 rounded-xl font-bold text-lg shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
-          >
-            Complete Setup
-            <span className="material-symbols-outlined">arrow_forward</span>
-          </button>
-          <p className="mt-6 text-center text-slate-500 text-xs px-8">
-            By continuing, you agree to our <span className="text-primary font-medium">Terms of Service</span> and <span className="text-primary font-medium">Privacy Policy</span>.
+      {/* Error Message */}
+      {updateProfileMutation.isError && (
+        <div className="mx-2 md:mx-4 mt-4 p-3 md:p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+          <p className="text-red-600 text-sm md:text-base">
+            {updateProfileMutation.error instanceof Error ? updateProfileMutation.error.message : 'Failed to update profile'}
           </p>
         </div>
+      )}
+
+      {/* Form Area */}
+      <div className="flex flex-col gap-4 md:gap-6 lg:gap-8 px-2 md:px-4 lg:px-6 py-4 md:py-6 max-w-md md:max-w-lg lg:max-w-xl mx-auto w-full">
+        <div className="flex flex-col w-full">
+          <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-2 md:pb-3 px-1">Full Name</p>
+          <input 
+            className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white/50 h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:bg-white focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none" 
+            placeholder="Enter your name" 
+            type="text" 
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col w-full">
+          <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-2 md:pb-3 px-1">Email Address</p>
+          <input 
+            className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white/50 h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:bg-white focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none" 
+            placeholder="hello@example.com" 
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col w-full">
+          <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-2 md:pb-3 px-1">Bio</p>
+          <textarea 
+            className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white/50 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 py-3 md:py-4 text-sm md:text-base lg:text-lg font-sans focus:bg-white focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none resize-none" 
+            placeholder="Tell us about yourself..." 
+            rows={4}
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Terms */}
+      <div className="px-2 md:px-4 lg:px-6 mt-4 md:mt-6 max-w-md md:max-w-lg lg:max-w-xl mx-auto w-full">
+        <p className="text-charcoal/40 text-[11px] md:text-xs lg:text-sm font-sans leading-relaxed">
+          By continuing, you agree to our <span className="underline cursor-pointer">Terms of Service</span> and <span className="underline cursor-pointer">Privacy Policy</span>.
+        </p>
+      </div>
+
+      {/* Action */}
+      <div className="px-2 md:px-4 lg:px-6 mt-6 md:mt-8 lg:mt-10 max-w-md md:max-w-lg lg:max-w-xl mx-auto w-full">
+        <button 
+          onClick={handleComplete}
+          disabled={updateProfileMutation.isPending}
+          className="w-full bg-charcoal text-ivory h-12 md:h-14 lg:h-16 rounded-lg font-display font-bold text-base md:text-lg lg:text-xl hover:opacity-90 transition-opacity shadow-lg shadow-charcoal/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {updateProfileMutation.isPending ? 'Saving...' : 'Complete Setup'}
+        </button>
       </div>
     </div>
   );

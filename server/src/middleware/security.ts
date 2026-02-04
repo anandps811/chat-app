@@ -12,7 +12,7 @@ export const securityHeaders = helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:', 'https:', 'http:'], // Allow images from any source (for user uploads)
+      imgSrc: ["'self'", 'data:', 'https:', 'http:'], // Allow images from any source
       connectSrc: ["'self'", 'http://localhost:*', 'http://10.0.2.2:*', 'http://192.168.*:*', 'https:'], // Allow API connections from various origins
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],

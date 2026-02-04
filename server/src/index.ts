@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import userRoutes from './routes/userRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
@@ -25,6 +26,9 @@ app.use(cors({
   credentials: true,
 }));
 
+// Parse cookies - must be before routes
+app.use(cookieParser());
+
 // Parse JSON request bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -41,6 +45,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/api/auth', userRoutes);
+app.use('/api', userRoutes); // Also mount user routes at /api for profile/search
 app.use('/api/chats', chatRoutes);
 
 // 404 handler - must be after all routes

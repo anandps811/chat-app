@@ -1,6 +1,5 @@
-
-import React, { useState } from 'react';
-import { Screen } from './types';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import WelcomeScreen from './screens/WelcomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import SignUpScreen from './screens/SignUpScreen';
@@ -9,90 +8,132 @@ import ProfileSetupScreen from './screens/ProfileSetupScreen';
 import ChatListScreen from './screens/ChatListScreen';
 import NewMessageScreen from './screens/NewMessageScreen';
 import ChatDetailScreen from './screens/ChatDetailScreen';
+import { useAuth } from './contexts/AuthContext';
+import socketService from './services/socket';
+import apiService from './services/api';
+import ProtectedRoute from './components/ProtectedRoute';
+import PublicRoute from './components/PublicRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 
-const App: React.FC = () => {
-  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.WELCOME);
-  const [loginIdentifier, setLoginIdentifier] = useState('');
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+// Component to handle socket connection on auth
+const SocketConnector: React.FC = () => {
+  const { isAuthenticated } = useAuth();
 
-  const navigate = (screen: Screen) => {
-    setCurrentScreen(screen);
-  };
-
-  const handleChatSelection = (chatId: string) => {
-    setSelectedChatId(chatId);
-    navigate(Screen.CHAT_DETAIL);
-  };
-
-  const renderScreen = () => {
-    switch (currentScreen) {
-      case Screen.WELCOME:
-        return <WelcomeScreen onGetStarted={() => navigate(Screen.SIGNUP)} onLogin={() => navigate(Screen.LOGIN)} />;
-      case Screen.LOGIN:
-        return (
-          <LoginScreen 
-            onBack={() => navigate(Screen.WELCOME)} 
-            onContinue={(id) => {
-              setLoginIdentifier(id);
-              navigate(Screen.OTP);
-            }} 
-          />
-        );
-      case Screen.SIGNUP:
-        return (
-          <SignUpScreen 
-            onBack={() => navigate(Screen.WELCOME)} 
-            onSignUp={() => navigate(Screen.OTP)} 
-            onLogin={() => navigate(Screen.LOGIN)}
-          />
-        );
-      case Screen.OTP:
-        return (
-          <OTPScreen 
-            identifier={loginIdentifier || '+1 (555) 0123'}
-            onBack={() => navigate(Screen.LOGIN)} 
-            onVerify={() => navigate(Screen.PROFILE_SETUP)} 
-          />
-        );
-      case Screen.PROFILE_SETUP:
-        return (
-          <ProfileSetupScreen 
-            onComplete={() => navigate(Screen.CHAT_LIST)} 
-            onSkip={() => navigate(Screen.CHAT_LIST)}
-            onBack={() => navigate(Screen.OTP)}
-          />
-        );
-      case Screen.CHAT_LIST:
-        return (
-          <ChatListScreen 
-            onNewMessage={() => navigate(Screen.NEW_MESSAGE)} 
-            onChatClick={handleChatSelection}
-          />
-        );
-      case Screen.CHAT_DETAIL:
-        return (
-          <ChatDetailScreen 
-            chatId={selectedChatId || '1'} 
-            onBack={() => navigate(Screen.CHAT_LIST)} 
-          />
-        );
-      case Screen.NEW_MESSAGE:
-        return (
-          <NewMessageScreen 
-            onCancel={() => navigate(Screen.CHAT_LIST)} 
-          />
-        );
-      default:
-        return <WelcomeScreen onGetStarted={() => navigate(Screen.SIGNUP)} onLogin={() => navigate(Screen.LOGIN)} />;
+  useEffect(() => {
+    if (isAuthenticated) {
+      const token = apiService.getAccessToken();
+      if (token) {
+        socketService.connect(token);
+      }
+    } else {
+      socketService.disconnect();
     }
-  };
+
+    return () => {
+      if (!isAuthenticated) {
+        socketService.disconnect();
+      }
+    };
+  }, [isAuthenticated]);
+
+  return null;
+};
+
+// Layout component for authenticated chat screens (desktop split view)
+const ChatLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const location = useLocation();
+  const isNewMessage = location.pathname === '/chats/new';
+  const isChatDetail = location.pathname.startsWith('/chats/') && location.pathname !== '/chats' && !isNewMessage;
 
   return (
-    <div className="flex justify-center min-h-screen bg-black overflow-hidden">
-      <div className="relative w-full max-w-[430px] h-screen bg-background-dark shadow-2xl overflow-hidden border-x border-slate-800">
-        {renderScreen()}
+    <div className="flex justify-center min-h-screen bg-ivory overflow-hidden">
+      <div className="relative w-full h-screen bg-ivory shadow-2xl overflow-hidden transition-all duration-300">
+        {/* Desktop Split View */}
+        <div className="hidden lg:flex h-full w-full">
+          {/* Chat List - Always visible on desktop */}
+          <div className="flex flex-col w-full lg:w-96 xl:w-[420px] border-r border-charcoal/10">
+            <ChatListScreen />
+          </div>
+          {/* Chat Detail or New Message or Empty State */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {isNewMessage ? (
+              <NewMessageScreen />
+            ) : isChatDetail ? (
+              children
+            ) : (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-charcoal/60 font-sans text-lg">Select a conversation to start chatting</p>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Mobile/Tablet Single View */}
+        <div className="lg:hidden h-full w-full">
+          {children}
+        </div>
       </div>
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <BrowserRouter>
+        <SocketConnector />
+        <Routes>
+          {/* Public Routes */}
+          <Route 
+            path="/" 
+            element={
+              <PublicRoute>
+                <WelcomeScreen />
+              </PublicRoute>
+            } 
+          />
+          <Route path="/login" element={<PublicRoute><LoginScreen /></PublicRoute>} />
+          <Route path="/signup" element={<PublicRoute><SignUpScreen /></PublicRoute>} />
+          <Route path="/otp" element={<PublicRoute><OTPScreen /></PublicRoute>} />
+          <Route path="/profile-setup" element={<ProtectedRoute><ProfileSetupScreen /></ProtectedRoute>} />
+
+          {/* Protected Chat Routes */}
+          <Route
+            path="/chats"
+            element={
+              <ProtectedRoute>
+                <ChatLayout>
+                  <ChatListScreen />
+                </ChatLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chats/new"
+            element={
+              <ProtectedRoute>
+                <ChatLayout>
+                  <NewMessageScreen />
+                </ChatLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chats/:chatId"
+            element={
+              <ProtectedRoute>
+                <ChatLayout>
+                  <ChatDetailScreen />
+                </ChatLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Catch all - redirect to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 };
 

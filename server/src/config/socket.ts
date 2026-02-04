@@ -71,6 +71,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     // Handle joining a chat room
     socket.on('join-chat', async (chatId: string) => {
       try {
+        // Check if already in the room to prevent duplicate joins
+        const rooms = Array.from(socket.rooms);
+        if (rooms.includes(`chat:${chatId}`)) {
+          return; // Already in the room, skip
+        }
+
         const { error } = await verifyChatAccess(chatId, userId);
         if (error) {
           socket.emit('error', { message: error.message });
@@ -86,6 +92,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
 
     // Handle leaving a chat room
     socket.on('leave-chat', (chatId: string) => {
+      // Check if actually in the room before leaving
+      const rooms = Array.from(socket.rooms);
+      if (!rooms.includes(`chat:${chatId}`)) {
+        return; // Not in the room, skip
+      }
+      
       socket.leave(`chat:${chatId}`);
       logger.debug(`User left chat`, { userId, chatId });
     });
@@ -111,6 +123,7 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
         let actualChatId = chatId;
         let isGroup = false;
         
+        // First, try to verify if chatId is an existing chat
         const { chat: existingChat, isGroup: isGroupChat, error: accessError } = await verifyChatAccess(chatId, userId);
         
         if (accessError) {
@@ -131,6 +144,19 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
           if (actualChatId !== chatId) {
             socket.join(`chat:${actualChatId}`);
           }
+          
+          // Emit chat-created event to notify clients
+          const otherParticipantId = chat.participants.find((p: any) => p.toString() !== userId)?.toString();
+          if (otherParticipantId) {
+            io.to(`user:${otherParticipantId}`).emit('chat-created', {
+              chatId: actualChatId,
+              participants: chat.participants.map((p: any) => p.toString()),
+            });
+          }
+          io.to(`user:${userId}`).emit('chat-created', {
+            chatId: actualChatId,
+            participants: chat.participants.map((p: any) => p.toString()),
+          });
         } else {
           chat = existingChat;
           isGroup = isGroupChat || false;
@@ -199,8 +225,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
           io.to(`user:${userId}`).emit('chat-updated', chatUpdate);
         }
 
-        // Confirm message sent
-        socket.emit('message-sent', { messageId: savedMessage._id.toString() });
+        // Confirm message sent with actual chatId (in case chat was just created)
+        socket.emit('message-sent', { 
+          messageId: savedMessage._id.toString(),
+          chatId: actualChatId,
+          wasNewChat: actualChatId !== chatId, // Indicates if chat was just created
+        });
       } catch (error: any) {
         logger.error('Error sending message', { error, userId, chatId: data.chatId });
         socket.emit('error', { message: 'Failed to send message' });

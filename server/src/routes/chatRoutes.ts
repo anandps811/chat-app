@@ -7,7 +7,7 @@ import {
   markMessagesAsRead,
   toggleMessageLikeController,
   deleteChat,
-} from '../controllers/chat-controller.js';
+} from '../controllers/chat.controller.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 const router = express.Router();

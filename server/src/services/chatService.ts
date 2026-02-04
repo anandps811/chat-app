@@ -12,37 +12,23 @@ export interface MessageData {
 
 /**
  * Verify chat exists and user is a participant
- * Also handles group chats by checking if chatId is a groupId
- * Returns Group for group chats, Chat for regular chats
  */
 export const verifyChatAccess = async (
   chatId: string,
   userId: string
-): Promise<{ chat: any; isGroup: boolean; error?: { status: number; message: string } }> => {
-  // First, try to find a Chat document with this ID (regular chat)
-  let chat = await Chat.findById(chatId);
+): Promise<{ chat: any; error?: { status: number; message: string } }> => {
+  const chat = await Chat.findById(chatId);
   
-  if (chat) {
-    // Verify user is a participant
-    if (!chat.participants.some((p: any) => p.toString() === userId)) {
-      return { chat: null, isGroup: false, error: { status: 403, message: 'Access denied' } };
-    }
-    return { chat, isGroup: false };
+  if (!chat) {
+    return { chat: null, error: { status: 404, message: 'Chat not found' } };
   }
   
-  // If no chat found, check if it's a group ID
-  const group = await Group.findById(chatId);
-  if (group) {
-    // Check if user is a member of the group
-    const isMember = group.members.some((m: any) => m.toString() === userId);
-    if (!isMember) {
-      return { chat: null, isGroup: true, error: { status: 403, message: 'Access denied' } };
-    }
-    // Return group for group chats (messages are stored in Group)
-    return { chat: group, isGroup: true };
+  // Verify user is a participant
+  if (!chat.participants.some((p: any) => p.toString() === userId)) {
+    return { chat: null, error: { status: 403, message: 'Access denied' } };
   }
   
-  return { chat: null, isGroup: false, error: { status: 404, message: 'Chat not found' } };
+  return { chat };
 };
 
 /**
@@ -76,14 +62,17 @@ export const findOrCreateChat = async (
 };
 
 /**
- * Create and save a message to chat or group
- * chat can be either a Chat document or Group document
+ * Create and save a message to chat
  */
 export const createMessage = async (
   chat: any,
-  messageData: MessageData,
-  isGroup: boolean = false
+  messageData: MessageData
 ): Promise<any> => {
+  // Ensure messages array exists
+  if (!chat.messages) {
+    chat.messages = [];
+  }
+
   const newMessage = {
     senderId: new mongoose.Types.ObjectId(messageData.senderId),
     content: messageData.content,
@@ -97,23 +86,23 @@ export const createMessage = async (
   chat.lastMessageAt = new Date();
   await chat.save();
 
-  // Reload to get populated message with _id
-  let chatWithMessage;
-  if (isGroup) {
-    chatWithMessage = await Group.findById(chat._id)
-      .populate('messages.senderId', 'name picture')
-      .lean();
-  } else {
-    chatWithMessage = await Chat.findById(chat._id)
-      .populate('messages.senderId', 'name picture')
-      .lean();
-  }
-
+  // Reload to get the saved message with _id
+  const chatWithMessage = await Chat.findById(chat._id).lean();
+  
   if (!chatWithMessage?.messages || chatWithMessage.messages.length === 0) {
     throw new Error('Failed to save message');
   }
 
-  return chatWithMessage.messages[chatWithMessage.messages.length - 1];
+  // Get the last message and populate its senderId
+  const lastMessage = chatWithMessage.messages[chatWithMessage.messages.length - 1];
+  if (lastMessage.senderId) {
+    const sender = await User.findById(lastMessage.senderId).select('name picture').lean();
+    if (sender) {
+      lastMessage.senderId = sender;
+    }
+  }
+
+  return lastMessage;
 };
 
 /**
@@ -122,19 +111,20 @@ export const createMessage = async (
 export const formatMessagePayload = (message: any, chatId: string) => {
   // Handle populated senderId (object with _id, name, picture) or ObjectId
   let senderId: any = message.senderId;
+  let senderName: string = 'Unknown';
+  let senderPicture: string | undefined;
   
-  // If senderId is populated (object), keep it as is for frontend
-  // If it's just an ObjectId, we'll need to populate it elsewhere
+  // If senderId is populated (object), extract name and picture
   if (senderId && typeof senderId === 'object' && senderId._id) {
-    // Already populated, use as is
-    senderId = {
-      _id: senderId._id.toString(),
-      name: senderId.name || 'Unknown',
-      picture: senderId.picture,
-    };
+    // Already populated, extract name and picture
+    senderName = senderId.name || 'Unknown';
+    senderPicture = senderId.picture;
+    senderId = senderId._id.toString();
   } else if (senderId && typeof senderId === 'object') {
     // Might be ObjectId, convert to string
     senderId = senderId.toString();
+  } else if (typeof senderId === 'string') {
+    // Already a string, keep as is
   }
 
   // Handle likedBy array - convert to array of user IDs
@@ -146,6 +136,8 @@ export const formatMessagePayload = (message: any, chatId: string) => {
     id: message._id?.toString() || message.id || '',
     chatId: chatId,
     senderId: senderId,
+    senderName: senderName,
+    senderPicture: senderPicture,
     content: message.content,
     imageUrl: message.imageUrl,
     voiceMessage: message.voiceMessageUrl
@@ -157,6 +149,9 @@ export const formatMessagePayload = (message: any, chatId: string) => {
     timestamp: message.createdAt
       ? new Date(message.createdAt).toISOString()
       : new Date().toISOString(),
+    createdAt: message.createdAt
+      ? new Date(message.createdAt).toISOString()
+      : new Date().toISOString(),
     likedBy: likedBy,
     likesCount: likedBy.length,
     isSent: false,
@@ -164,19 +159,33 @@ export const formatMessagePayload = (message: any, chatId: string) => {
 };
 
 /**
- * Mark messages as read in chat or group
- * chat can be either a Chat document or Group document
+ * Mark messages as read in chat
  */
 export const markChatMessagesAsRead = async (
   chat: any,
   userId: string
 ): Promise<boolean> => {
+  // Ensure messages array exists
+  if (!chat.messages || !Array.isArray(chat.messages)) {
+    return false;
+  }
+
   let hasChanges = false;
   
   chat.messages.forEach((msg: any) => {
+    // Ensure readBy array exists
+    if (!msg.readBy) {
+      msg.readBy = [];
+    }
+
+    const senderIdStr = msg.senderId?.toString() || (typeof msg.senderId === 'object' && msg.senderId._id ? msg.senderId._id.toString() : '');
+    
     if (
-      msg.senderId.toString() !== userId &&
-      !msg.readBy.some((id: any) => id.toString() === userId)
+      senderIdStr !== userId &&
+      !msg.readBy.some((id: any) => {
+        const idStr = id?.toString() || (typeof id === 'object' && id._id ? id._id.toString() : '');
+        return idStr === userId;
+      })
     ) {
       msg.readBy.push(new mongoose.Types.ObjectId(userId));
       hasChanges = true;
@@ -191,8 +200,7 @@ export const markChatMessagesAsRead = async (
 };
 
 /**
- * Toggle like on a message in chat or group
- * chat can be either a Chat document or Group document
+ * Toggle like on a message in chat
  */
 export const toggleMessageLike = async (
   chat: any,
