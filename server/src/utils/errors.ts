@@ -4,7 +4,7 @@
 export class AppError extends Error {
   public readonly statusCode: number;
   public readonly isOperational: boolean;
-  public readonly field?: string;
+  public readonly field: string | undefined;
 
   constructor(
     message: string,
@@ -16,7 +16,7 @@ export class AppError extends Error {
     this.name = this.constructor.name;
     this.statusCode = statusCode;
     this.isOperational = isOperational;
-    this.field = field;
+    this.field = field??undefined;
 
     // Maintains proper stack trace for where our error was thrown (V8 only)
     if (Error.captureStackTrace) {
