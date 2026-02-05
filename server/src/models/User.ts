@@ -21,9 +21,6 @@ const userSchema = new Schema<IUser>(
 
 
 
-// Create indexes for better query performance
-userSchema.index({ email: 1 });
-// Note: mobileNumber already has unique: true which creates an index
 
 // Create text index for search functionality
 userSchema.index({ 

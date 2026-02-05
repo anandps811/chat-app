@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Message, BackendMessage, BackendChat, MessagesQueryData, SocketMessageEvent, ChatPreview } from '../types';
 import socketService from '../services/socket';
 import { useAuth } from '../contexts/AuthContext';
-import { useMessages, useSendMessage, useMarkMessagesAsRead } from '../hooks';
+import { useMessages, useSendMessage, useMarkMessagesAsRead, useDeleteChat } from '../hooks';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import apiService from '../services/api';
 import { validateMessage } from '../utils/validation';
@@ -19,15 +19,18 @@ const ChatDetailScreen: React.FC = () => {
   const [contactAvatar, setContactAvatar] = useState('');
   const [contactUserId, setContactUserId] = useState<string | null>(null);
   const [isContactOnline, setIsContactOnline] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const { data, isLoading } = useMessages({ chatId: chatId || '', userId: user?.id });
   const sendMessageMutation = useSendMessage();
   const markAsReadMutation = useMarkMessagesAsRead();
+  const deleteChatMutation = useDeleteChat();
 
   // Get chat info to find the other participant's userId
+  // Use a different query key to avoid conflicting with useChats hook
   const { data: chatsData } = useQuery<{ chats: BackendChat[] }>({
-    queryKey: ['chats'],
+    queryKey: ['chats', 'raw'],
     queryFn: async () => {
       const response = await apiService.getUserChats();
       if (response.error) {
@@ -39,6 +42,8 @@ const ChatDetailScreen: React.FC = () => {
       return response.data;
     },
     enabled: !!chatId,
+    // Use staleTime to prevent unnecessary refetches
+    staleTime: 30000, // 30 seconds
   });
 
   // Find the contact userId, name, and avatar from the chat list
@@ -166,8 +171,9 @@ const ChatDetailScreen: React.FC = () => {
 
     // Listen for chat updates (when chat is created or updated)
     const unsubscribeChatUpdated = socketService.onChatUpdated(() => {
-      // Refresh chat list when any chat is updated
+      // Refresh chat list when any chat is updated (both formatted and raw)
       queryClient.invalidateQueries({ queryKey: ['chats'] });
+      queryClient.invalidateQueries({ queryKey: ['chats', 'raw'] });
       
       // Don't invalidate messages for current chat - socket already handles it
       // This prevents duplicate messages from refetch + socket event
@@ -286,6 +292,28 @@ const ChatDetailScreen: React.FC = () => {
     }
   }, [messages]);
 
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (chatId) {
+      deleteChatMutation.mutate(chatId, {
+        onSuccess: () => {
+          setShowDeleteConfirm(false);
+          navigate('/chats');
+        },
+        onError: (error) => {
+          console.error('Failed to delete chat:', error);
+        },
+      });
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+  };
+
   return (
     <div className="relative flex h-screen w-full flex-col bg-ivory text-charcoal overflow-hidden font-sans">
       
@@ -301,6 +329,14 @@ const ChatDetailScreen: React.FC = () => {
               className="flex items-center justify-center transition-opacity hover:opacity-50"
             >
               <span className="material-symbols-outlined text-xl md:text-2xl">arrow_back_ios</span>
+            </button>
+            <button 
+              onClick={handleDeleteClick}
+              disabled={deleteChatMutation.isPending}
+              className="flex items-center justify-center transition-opacity hover:opacity-50 text-red-500 disabled:opacity-30"
+              title="Delete chat"
+            >
+              <span className="material-symbols-outlined text-xl md:text-2xl">delete</span>
             </button>
           </div>
    {/* Right: Profile Avatar */}
@@ -387,6 +423,43 @@ const ChatDetailScreen: React.FC = () => {
           </div>
         </div>
       </footer>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-ivory rounded-lg border border-charcoal/10 p-6 max-w-md w-full shadow-lg">
+            <h2 className="text-xl font-bold serif-italic text-charcoal mb-2">Delete Chat</h2>
+            <p className="text-charcoal/70 text-sm mb-6">
+              Are you sure you want to delete this conversation with <strong>{contactName}</strong>? This action cannot be undone.
+            </p>
+            {deleteChatMutation.isError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                <p className="text-red-600 text-sm">
+                  {deleteChatMutation.error instanceof Error 
+                    ? deleteChatMutation.error.message 
+                    : 'Failed to delete chat'}
+                </p>
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleCancelDelete}
+                disabled={deleteChatMutation.isPending}
+                className="px-4 py-2 rounded-lg border border-charcoal/20 text-charcoal hover:bg-charcoal/5 transition-colors disabled:opacity-50 font-display"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleteChatMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50 font-display"
+              >
+                {deleteChatMutation.isPending ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -62,19 +62,36 @@ export const useChats = () => {
     },
     // Ensure we always return an array, even if query fails
     placeholderData: [],
+    // Keep data fresh for 30 seconds to prevent unnecessary refetches
+    staleTime: 30000,
+    // Keep data in cache even when component unmounts
+    gcTime: 5 * 60 * 1000, // 5 minutes
   });
 };
+
+interface DeleteChatResponse {
+  success: boolean;
+  message: string;
+}
+
+interface DeleteChatContext {
+  previousChats: ChatPreview[] | undefined;
+  previousMessages: MessagesQueryData | undefined;
+}
 
 export const useDeleteChat = () => {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<DeleteChatResponse, Error, string, DeleteChatContext>({
     mutationFn: async (chatId: string) => {
       const response = await apiService.deleteChat(chatId);
       if (response.error) {
         throw new Error(response.error);
       }
-      return response;
+      if (!response.data) {
+        throw new Error('Failed to delete chat');
+      }
+      return response.data;
     },
     // Optimistic update: remove chat immediately
     onMutate: async (chatId) => {
@@ -107,13 +124,17 @@ export const useDeleteChat = () => {
         queryClient.setQueryData(['messages', chatId], context.previousMessages);
       }
     },
-    // On success, invalidate to ensure consistency
-    onSuccess: () => {
+    // On success, invalidate to ensure consistency and navigate if needed
+    onSuccess: (_data, chatId) => {
       queryClient.invalidateQueries({ queryKey: ['chats'] });
+      // Remove any cached messages for this chat
+      queryClient.removeQueries({ queryKey: ['messages', chatId] });
     },
     // Always refetch after error or success
-    onSettled: () => {
+    onSettled: (_data, _error, chatId) => {
       queryClient.invalidateQueries({ queryKey: ['chats'] });
+      // Clean up messages cache for deleted chat
+      queryClient.removeQueries({ queryKey: ['messages', chatId] });
     },
   });
 };

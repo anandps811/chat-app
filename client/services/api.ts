@@ -16,6 +16,9 @@ interface ApiResponse<T> {
 class ApiService {
   private baseURL: string;
   private accessToken: string | null = null;
+  private isRefreshing: boolean = false;
+  private refreshPromise: Promise<string | null> | null = null;
+  private onTokenRefreshCallbacks: Set<(token: string | null) => void> = new Set();
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -33,6 +36,8 @@ class ApiService {
     } else {
       localStorage.removeItem('accessToken');
     }
+    // Notify all listeners of token change
+    this.onTokenRefreshCallbacks.forEach(callback => callback(token));
   }
 
   /**
@@ -43,9 +48,59 @@ class ApiService {
   }
 
   /**
-   * Make an authenticated request
+   * Register a callback to be notified when token is refreshed
    */
-  private async request<T>(
+  onTokenRefresh(callback: (token: string | null) => void): () => void {
+    this.onTokenRefreshCallbacks.add(callback);
+    // Return unsubscribe function
+    return () => {
+      this.onTokenRefreshCallbacks.delete(callback);
+    };
+  }
+
+  /**
+   * Attempt to refresh the access token
+   * Uses a promise cache to prevent concurrent refresh attempts
+   */
+  private async attemptTokenRefresh(): Promise<string | null> {
+    // If already refreshing, return the existing promise
+    if (this.isRefreshing && this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.isRefreshing = true;
+    this.refreshPromise = (async () => {
+      try {
+        const response = await this.requestWithoutRetry<{ accessToken: string }>('/auth/refresh', {
+          method: 'POST',
+          credentials: 'include', // Ensure cookies are sent
+        });
+
+        if (response.data?.accessToken) {
+          this.setAccessToken(response.data.accessToken);
+          return response.data.accessToken;
+        } else {
+          // Refresh failed, clear auth
+          this.setAccessToken(null);
+          return null;
+        }
+      } catch (error) {
+        // Refresh failed, clear auth
+        this.setAccessToken(null);
+        return null;
+      } finally {
+        this.isRefreshing = false;
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
+  }
+
+  /**
+   * Make a request without automatic retry (used for refresh endpoint)
+   */
+  private async requestWithoutRetry<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
@@ -69,6 +124,78 @@ class ApiService {
       });
 
       const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        return {
+          error: data.message || data.error || `HTTP ${response.status}`,
+        };
+      }
+
+      return { data };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : 'Network error',
+      };
+    }
+  }
+
+  /**
+   * Make an authenticated request with automatic token refresh on 401
+   */
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {},
+    retryCount: number = 0
+  ): Promise<ApiResponse<T>> {
+    const url = `${this.baseURL}${endpoint}`;
+    const token = this.getAccessToken();
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    if (token) {
+      (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    }
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: 'include', // Include cookies for refresh token
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      // Handle 401 Unauthorized - attempt token refresh
+      if (response.status === 401 && retryCount === 0) {
+        // Don't attempt refresh for the refresh endpoint itself
+        if (endpoint === '/auth/refresh') {
+          return {
+            error: data.message || data.error || 'Authentication failed',
+          };
+        }
+
+        // Attempt to refresh the token
+        const newToken = await this.attemptTokenRefresh();
+
+        if (newToken) {
+          // Retry the original request with the new token
+          return this.request<T>(endpoint, options, retryCount + 1);
+        } else {
+          // Refresh failed, clear auth state
+          // Trigger logout by clearing user data
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('user');
+            // Dispatch a custom event that AuthContext can listen to
+            window.dispatchEvent(new CustomEvent('auth:logout'));
+          }
+          return {
+            error: 'Authentication failed. Please log in again.',
+          };
+        }
+      }
 
       if (!response.ok) {
         return {
@@ -118,7 +245,8 @@ class ApiService {
   }
 
   async refreshToken() {
-    const response = await this.request<{ accessToken: string }>('/auth/refresh', {
+    // Use requestWithoutRetry to avoid infinite loop if refresh fails
+    const response = await this.requestWithoutRetry<{ accessToken: string }>('/auth/refresh', {
       method: 'POST',
       credentials: 'include', // Ensure cookies are sent
     });
@@ -211,20 +339,28 @@ class ApiService {
   }
 
   async deleteChat(chatId: string) {
-    return this.request(`/chats/${chatId}`, {
+    return this.request<{
+      success: boolean;
+      message: string;
+    }>(`/chats/${chatId}`, {
       method: 'DELETE',
     });
   }
 
-  // User endpoints (if available)
+  // User endpoints
   async updateProfile(profileData: {
     name?: string;
     email?: string;
     bio?: string;
     picture?: string;
   }) {
-    // This endpoint might need to be added to the backend
-    return this.request('/users/profile', {
+    return this.request<{
+      user: {
+        id: string;
+        name: string;
+        email: string;
+      };
+    }>('/users/profile', {
       method: 'PUT',
       body: JSON.stringify(profileData),
     });

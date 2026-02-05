@@ -20,12 +20,20 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 class SocketService {
   private socket: Socket | null = null;
   private joinedChats: Set<string> = new Set(); // Track joined chats to prevent duplicates
+  private currentToken: string | null = null;
 
   connect(token: string) {
-    if (this.socket?.connected) {
+    // If already connected with the same token, don't reconnect
+    if (this.socket?.connected && this.currentToken === token) {
       return;
     }
 
+    // If connected with different token, disconnect first
+    if (this.socket?.connected && this.currentToken !== token) {
+      this.disconnect();
+    }
+
+    this.currentToken = token;
     this.socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket', 'polling'],
@@ -48,8 +56,33 @@ class SocketService {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
+      this.currentToken = null;
       this.joinedChats.clear(); // Clear joined chats on disconnect
     }
+  }
+
+  /**
+   * Reconnect with a new token (useful when token is refreshed)
+   */
+  reconnectWithToken(token: string) {
+    // Store currently joined chats before disconnecting
+    const chatsToRejoin = Array.from(this.joinedChats);
+    
+    // Disconnect current connection
+    this.disconnect();
+    
+    // Reconnect with new token
+    this.connect(token);
+    
+    // Rejoin all previously joined chats
+    // Use setTimeout to ensure socket is connected before joining
+    setTimeout(() => {
+      if (this.socket?.connected) {
+        chatsToRejoin.forEach(chatId => {
+          this.joinChat(chatId);
+        });
+      }
+    }, 100);
   }
 
   // Send a message via socket

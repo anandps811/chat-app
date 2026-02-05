@@ -45,7 +45,7 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
 
   res.json({
     user: {
-      id: user._id,
+      id: user._id.toString(),
       name: user.name,
       email: user.email,
     },

@@ -25,7 +25,7 @@ const WelcomeScreen: React.FC = () => {
         {/* Header Label - Repositioned for flow */}
         <div className="flex items-center justify-center p-6 md:p-8 lg:px-16 lg:pt-16 pt-12 items-center">
           <div className="text-[10px] md:text-xs font-display uppercase tracking-[0.4em] opacity-60 text-charcoal items-center">
-            Collection No. 01
+            Collection
           </div>
         </div>
 

@@ -303,15 +303,6 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
         if (userSockets.size === 0) {
           activeUsers.delete(userId);
           
-          // Update lastSeen timestamp when user goes offline
-          try {
-            await User.findByIdAndUpdate(userId, {
-              lastSeen: new Date(),
-            });
-          } catch (error) {
-            logger.error('Error updating lastSeen', { error, userId });
-          }
-          
           // Notify others that this user is offline
           socket.broadcast.emit('user-offline', { userId });
         }

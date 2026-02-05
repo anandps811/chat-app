@@ -43,11 +43,6 @@ chatSchema.index({ participants: 1 });
 chatSchema.index({ lastMessageAt: -1 });
 chatSchema.index({ 'messages.createdAt': -1 });
 
-// Ensure unique chat between two users
-chatSchema.index(
-  { participants: 1 },
-  { unique: true }
-);
 // Note: Group chat support removed - unique index now applies to all chats
 
 export default mongoose.model<IChat>('Chat', chatSchema);

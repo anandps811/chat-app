@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import apiService from '../services/api';
 import { useLogin, useSignup, useLogout, useRefreshToken } from '../hooks/useAuth';
 
@@ -16,6 +16,7 @@ interface AuthContextType {
   signup: (name: string, email: string, mobileNumber: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  updateUser: (userData: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -95,6 +96,40 @@ const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const updateUser = useCallback((userData: Partial<User>) => {
+    setUser((currentUser) => {
+      if (currentUser) {
+        const updatedUser = { ...currentUser, ...userData };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        return updatedUser;
+      }
+      return currentUser;
+    });
+  }, []);
+
+  // Listen for logout events from API service (when token refresh fails)
+  useEffect(() => {
+    const handleLogout = () => {
+      setUser(null);
+      localStorage.removeItem('user');
+      apiService.setAccessToken(null);
+    };
+
+    const handleUserUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{ id: string; name: string; email: string }>;
+      if (customEvent.detail) {
+        updateUser(customEvent.detail);
+      }
+    };
+
+    window.addEventListener('auth:logout', handleLogout);
+    window.addEventListener('auth:userUpdated', handleUserUpdated);
+    return () => {
+      window.removeEventListener('auth:logout', handleLogout);
+      window.removeEventListener('auth:userUpdated', handleUserUpdated);
+    };
+  }, [updateUser]);
+
   const login = async (emailOrPhone: string, password: string) => {
     try {
       setIsLoading(true);
@@ -151,6 +186,7 @@ const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
         signup,
         logout,
         refreshAuth,
+        updateUser,
       }}
     >
       {children}

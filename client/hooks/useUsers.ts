@@ -169,25 +169,60 @@ export const useGetOrCreateChat = () => {
   });
 };
 
+interface UpdateProfileData {
+  name?: string;
+  email?: string;
+  bio?: string;
+  picture?: string;
+}
+
+interface UpdateProfileResponse {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
 export const useUpdateProfile = () => {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async (profileData: {
-      name?: string;
-      email?: string;
-      bio?: string;
-      picture?: string;
-    }) => {
+  return useMutation<UpdateProfileResponse, Error, UpdateProfileData>({
+    mutationFn: async (profileData: UpdateProfileData) => {
       const response = await apiService.updateProfile(profileData);
       if (response.error) {
         throw new Error(response.error);
       }
+      if (!response.data) {
+        throw new Error('Failed to update profile');
+      }
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       // Invalidate any user-related queries
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['chats'] }); // Invalidate chats as user info might be displayed there
+      
+      // Update user in localStorage
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        try {
+          const user = JSON.parse(storedUser);
+          const updatedUser = {
+            ...user,
+            name: data.user.name,
+            email: data.user.email,
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+        } catch (error) {
+          console.error('Failed to update user in localStorage:', error);
+        }
+      }
+      
+      // Dispatch custom event for AuthContext to listen to
+      window.dispatchEvent(new CustomEvent('auth:userUpdated', { 
+        detail: data.user 
+      }));
     },
   });
 };

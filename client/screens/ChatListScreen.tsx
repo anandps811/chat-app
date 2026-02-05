@@ -1,16 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useChats } from '../hooks';
+import { useChats, useDeleteChat } from '../hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import socketService from '../services/socket';
 import { sanitizeSearchQuery } from '../utils/sanitization';
 
-const ChatListScreen: React.FC = () => {
+// Pure Sidebar Component - Always stays mounted
+const ChatListSidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { data: chats, isLoading } = useChats();
+  const deleteChatMutation = useDeleteChat();
   
   // Get current chatId from URL to highlight active chat
   const getCurrentChatId = () => {
@@ -49,12 +53,42 @@ const ChatListScreen: React.FC = () => {
     chat.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleDeleteClick = (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation(); // Prevent navigation
+    setChatToDelete(chatId);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (chatToDelete) {
+      deleteChatMutation.mutate(chatToDelete, {
+        onSuccess: () => {
+          setShowDeleteConfirm(false);
+          setChatToDelete(null);
+          // If we're viewing the deleted chat, navigate back to chat list
+          if (currentChatId === chatToDelete) {
+            navigate('/chats');
+          }
+        },
+        onError: (error) => {
+          console.error('Failed to delete chat:', error);
+          // Keep dialog open on error so user can retry
+        },
+      });
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setChatToDelete(null);
+  };
+
   return (
     <div className="relative flex h-full w-full flex-col bg-ivory overflow-hidden">
       {/* Mobile Navigation (Hidden on Desktop) */}
       <nav className="lg:hidden flex items-center pt-6 px-6 justify-between shrink-0">
         <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal">
-          Collection No. 01
+          Collection
         </div>
         <div className="flex items-center gap-2">
           <button 
@@ -84,7 +118,7 @@ const ChatListScreen: React.FC = () => {
       {/* Desktop Header (Hidden on Mobile) */}
       <div className="hidden lg:flex flex-col px-6 pt-6 pb-4 border-b border-charcoal/5 shrink-0">
         <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal mb-4">
-          Collection No. 01
+          Collection
         </div>
         <div className="flex items-center justify-between">
           <h1 className="tracking-tight text-2xl font-bold leading-tight serif-italic text-charcoal">
@@ -110,7 +144,7 @@ const ChatListScreen: React.FC = () => {
       </div>
 
       {/* Scrollable Message List Container */}
-      <div className="flex flex-1 flex-col overflow-hidden px-4 lg:px-4 min-h-0">
+      <div className="flex flex-1 flex-col overflow-hidden px-4 py-4 lg:px-4 min-h-0">
         {/* Search Bar */}
         <div className="mb-4 px-2">
           <div className="flex w-full items-center rounded-lg border border-charcoal/10 bg-white/50 focus-within:bg-white focus-within:ring-1 focus-within:ring-primary transition-all overflow-hidden h-10 lg:h-12">
@@ -151,7 +185,7 @@ const ChatListScreen: React.FC = () => {
                 <div 
                   key={chat.id}
                   onClick={() => navigate(`/chats/${chat.id}`)}
-                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer active:scale-[0.98] transition-all ${
+                  className={`group flex items-center gap-3 p-3 rounded-lg border cursor-pointer active:scale-[0.98] transition-all relative ${
                     isActive
                       ? 'bg-charcoal/10 border-charcoal/20 hover:bg-charcoal/15 shadow-sm'
                       : 'border-charcoal/5 bg-white/50 hover:bg-white hover:border-charcoal/10'
@@ -189,6 +223,16 @@ const ChatListScreen: React.FC = () => {
                       )}
                     </div>
                   </div>
+                  
+                  {/* Delete Button - Shows on hover (desktop) or always visible (mobile) */}
+                  <button
+                    onClick={(e) => handleDeleteClick(e, chat.id)}
+                    disabled={deleteChatMutation.isPending}
+                    className="opacity-0 group-hover:opacity-100 lg:opacity-0 lg:group-hover:opacity-100 flex items-center justify-center size-8 rounded-lg hover:bg-red-500/10 text-red-500 transition-all shrink-0 disabled:opacity-50"
+                    title="Delete chat"
+                  >
+                    <span className="material-symbols-outlined text-lg">delete</span>
+                  </button>
                 </div>
               );
               })}
@@ -196,8 +240,45 @@ const ChatListScreen: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-ivory rounded-lg border border-charcoal/10 p-6 max-w-md w-full shadow-lg">
+            <h2 className="text-xl font-bold serif-italic text-charcoal mb-2">Delete Chat</h2>
+            <p className="text-charcoal/70 text-sm mb-6">
+              Are you sure you want to delete this conversation? This action cannot be undone.
+            </p>
+            {deleteChatMutation.isError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                <p className="text-red-600 text-sm">
+                  {deleteChatMutation.error instanceof Error 
+                    ? deleteChatMutation.error.message 
+                    : 'Failed to delete chat'}
+                </p>
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleCancelDelete}
+                disabled={deleteChatMutation.isPending}
+                className="px-4 py-2 rounded-lg border border-charcoal/20 text-charcoal hover:bg-charcoal/5 transition-colors disabled:opacity-50 font-display"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleteChatMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50 font-display"
+              >
+                {deleteChatMutation.isPending ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default ChatListScreen;
+export default ChatListSidebar;

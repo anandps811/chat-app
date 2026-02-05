@@ -18,6 +18,7 @@ import {
   NotFoundError,
   ForbiddenError,
 } from '../utils/errors.js';
+import { isUserOnline } from '../config/socket.js';
 import {
   userIdParamSchema,
   chatIdParamSchema,
@@ -135,6 +136,7 @@ export const getUserChats = asyncHandler(async (req: Request, res: Response): Pr
       const otherParticipant = chat.participants.find(
         (p: any) => p._id.toString() !== currentUserId
       );
+      const otherParticipantId = otherParticipant?._id?.toString() || '';
       const lastMessage = getLastMessage(chat);
       
       // Format timestamp as ISO string
@@ -165,16 +167,19 @@ export const getUserChats = asyncHandler(async (req: Request, res: Response): Pr
         return isSentByOther && !isReadByCurrentUser;
       }).length;
 
+      // Get online status for the other participant
+      const isOnline = otherParticipantId ? isUserOnline(otherParticipantId) : false;
+
       return {
         id: chat._id.toString(),
         chatId: chat._id.toString(),
-        userId: otherParticipant?._id?.toString() || '',
+        userId: otherParticipantId,
         name: otherParticipant?.name || 'Unknown',
         profileImage: otherParticipant?.picture || '',
         lastMessage: lastMessage?.content || '',
         timestamp: timestamp,
         unreadCount: unreadCount,
-        isOnline: false, // TODO: Get from socket connections
+        isOnline: isOnline,
       };
     });
 
