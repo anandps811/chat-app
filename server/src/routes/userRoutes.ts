@@ -1,18 +1,11 @@
 import { Router } from "express";
-import {
-  login,
-  refreshToken,
-  logout,
-} from "../controllers/auth.controller";
-import { protect } from "../middleware/authMiddleware";
-import { authLimiter, refreshLimiter } from "../middleware/rateLimiter";
+import { updateProfile, searchUsers } from "../controllers/user.controller.js";
+import { authenticateToken } from "../middleware/authMiddleware.js";
 
 const router = Router();
 
-// Authentication routes with rate limiting
-router.post("/signup", authLimiter, login);
-router.post("/login", authLimiter, login);
-router.post("/refresh", refreshLimiter, refreshToken);
-router.post("/logout", protect, logout);
+// User routes (require authentication)
+router.put("/profile", authenticateToken, updateProfile);
+router.get("/search", authenticateToken, searchUsers);
 
 export default router;

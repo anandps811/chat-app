@@ -1,7 +1,6 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Chat from '../models/Chat.js';
-import Group from '../models/Group.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import {
   findOrCreateChat,
@@ -17,27 +16,48 @@ import {
   UnauthorizedError,
   ValidationError,
   NotFoundError,
+  ForbiddenError,
 } from '../utils/errors.js';
+import {
+  userIdParamSchema,
+  chatIdParamSchema,
+  chatMessageIdParamsSchema,
+  paginationQuerySchema,
+  sendMessageSchema,
+} from '../validations/chatValidation.js';
 
 /**
  * Get or create a chat between two users
  */
-export const getOrCreateChat = asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
-  const { userId } = req.params;
-  const currentUserId = req.user?.userId;
+export const getOrCreateChat = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const currentUserId = authReq.user?.userId;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
 
+  // Validate params
+  const paramValidation = userIdParamSchema.safeParse(req.params);
+  if (!paramValidation.success) {
+    throw new ValidationError(paramValidation.error.issues[0]?.message || 'Invalid user ID format. Please provide a valid user ID.');
+  }
+  const { userId } = paramValidation.data;
+
   if (userId === currentUserId) {
-    throw new ValidationError('Cannot create chat with yourself');
+    throw new ValidationError('Cannot create chat with yourself. Please select a different user to start a conversation.');
   }
 
   const { chat, error } = await findOrCreateChat(currentUserId, userId);
   
   if (error) {
-    throw new Error(error.message);
+    if (error.status === 404) {
+      throw new NotFoundError(error.message);
+    } else if (error.status === 403) {
+      throw new ForbiddenError(error.message);
+    } else {
+      throw new ValidationError(error.message);
+    }
   }
 
   res.json({ chat });
@@ -46,11 +66,12 @@ export const getOrCreateChat = asyncHandler(async (req: AuthRequest, res: Respon
 /**
  * Get all chats for the current user
  */
-export const getUserChats = asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
-  const currentUserId = req.user?.userId;
+export const getUserChats = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const currentUserId = authReq.user?.userId;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
 
     const chats = await Chat.find({
@@ -58,9 +79,56 @@ export const getUserChats = asyncHandler(async (req: AuthRequest, res: Response)
       deletedBy: { $ne: currentUserId }, // Exclude chats deleted by current user
     })
       .populate('participants', 'name picture email')
-      .populate('messages.senderId', 'name picture')
       .sort({ lastMessageAt: -1, updatedAt: -1 })
       .lean();
+
+    // Collect all unique senderIds from all messages across all chats
+    const User = (await import('../models/User.js')).default;
+    const senderIds = new Set<string>();
+    
+    for (const chat of chats) {
+      if (chat.messages && Array.isArray(chat.messages)) {
+        for (const message of chat.messages) {
+          if (message.senderId) {
+            const senderIdStr = typeof message.senderId === 'object' && message.senderId.toString
+              ? message.senderId.toString()
+              : message.senderId.toString();
+            if (senderIdStr) {
+              senderIds.add(senderIdStr);
+            }
+          }
+        }
+      }
+    }
+
+    // Batch fetch all senders in a single query
+    const sendersMap = new Map<string, any>();
+    if (senderIds.size > 0) {
+      const senders = await User.find({
+        _id: { $in: Array.from(senderIds) }
+      }).select('name picture').lean();
+      
+      for (const sender of senders) {
+        sendersMap.set(sender._id.toString(), sender);
+      }
+    }
+
+    // Populate senderId fields using the map
+    for (const chat of chats) {
+      if (chat.messages && Array.isArray(chat.messages)) {
+        for (const message of chat.messages) {
+          if (message.senderId) {
+            const senderIdStr = typeof message.senderId === 'object' && message.senderId.toString
+              ? message.senderId.toString()
+              : message.senderId.toString();
+            const sender = sendersMap.get(senderIdStr);
+            if (sender) {
+              message.senderId = sender;
+            }
+          }
+        }
+      }
+    }
 
     // Format chats to include the other participant's info
     const formattedChats = chats.map((chat: any) => {
@@ -116,47 +184,121 @@ export const getUserChats = asyncHandler(async (req: AuthRequest, res: Response)
 /**
  * Get messages for a specific chat or group
  */
-export const getChatMessages = asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
-  const { chatId } = req.params;
-  const currentUserId = req.user?.userId;
-  const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 50;
-  const skip = (page - 1) * limit;
+export const getChatMessages = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const currentUserId = authReq.user?.userId;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
 
-  const { chat, isGroup, error } = await verifyChatAccess(chatId, currentUserId);
+  // Validate params
+  const paramValidation = chatIdParamSchema.safeParse(req.params);
+  if (!paramValidation.success) {
+    throw new ValidationError(paramValidation.error.issues[0]?.message || 'Invalid chat ID format. Please provide a valid chat ID.');
+  }
+  const { chatId } = paramValidation.data;
+
+  // Validate query params
+  const queryValidation = paginationQuerySchema.safeParse(req.query);
+  if (!queryValidation.success) {
+    throw new ValidationError(queryValidation.error.issues[0]?.message || 'Invalid pagination parameters. Page and limit must be positive numbers.');
+  }
+  const { page, limit } = queryValidation.data;
+  const skip = (page - 1) * limit;
+
+  const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
-    throw new Error(error.message);
+    if (error.status === 404) {
+      throw new NotFoundError(error.message);
+    } else if (error.status === 403) {
+      throw new ForbiddenError(error.message);
+    } else {
+      throw new ValidationError(error.message);
+    }
   }
 
-    // Get messages from embedded array in chat/group document
-    let chatWithMessages;
-    if (isGroup) {
-      chatWithMessages = await Group.findById(chatId)
-        .populate('messages.senderId', 'name picture')
-        .lean();
-    } else {
-      chatWithMessages = await Chat.findById(chatId)
-        .populate('messages.senderId', 'name picture')
-        .lean();
+  // Use MongoDB aggregation pipeline for efficient pagination
+  // This avoids loading all messages into memory
+  const aggregationResult = await Chat.aggregate([
+    // Match the specific chat
+    { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
+    
+    // Unwind messages array to individual documents
+    { $unwind: { path: '$messages', preserveNullAndEmptyArrays: false } },
+    
+    // Sort messages by createdAt descending (newest first)
+    { $sort: { 'messages.createdAt': -1 } },
+    
+    // Skip and limit for pagination
+    { $skip: skip },
+    { $limit: limit },
+    
+    // Project only the message fields we need
+    {
+      $project: {
+        _id: '$messages._id',
+        senderId: '$messages.senderId',
+        content: '$messages.content',
+        imageUrl: '$messages.imageUrl',
+        voiceMessageUrl: '$messages.voiceMessageUrl',
+        voiceMessageDuration: '$messages.voiceMessageDuration',
+        readBy: '$messages.readBy',
+        likedBy: '$messages.likedBy',
+        createdAt: '$messages.createdAt',
+        updatedAt: '$messages.updatedAt',
+      }
+    }
+  ]);
+
+  // Reverse to get chronological order (oldest first) for display
+  const paginatedMessages = aggregationResult.reverse();
+
+  // If no messages found, return empty array
+  if (paginatedMessages.length === 0) {
+    res.json({ messages: [] });
+    return;
+  }
+
+  // Collect all unique senderIds from paginated messages only
+    const User = (await import('../models/User.js')).default;
+    const senderIds = new Set<string>();
+    
+    for (const message of paginatedMessages) {
+      if (message.senderId) {
+        const senderIdStr = typeof message.senderId === 'object' && message.senderId.toString
+          ? message.senderId.toString()
+          : message.senderId.toString();
+        if (senderIdStr) {
+          senderIds.add(senderIdStr);
+        }
+      }
     }
 
-  if (!chatWithMessages) {
-    throw new NotFoundError('Chat not found');
-  }
+    // Batch fetch all senders in a single query (optimized: only fetch users for paginated messages)
+    const sendersMap = new Map<string, any>();
+    if (senderIds.size > 0) {
+      const senders = await User.find({
+        _id: { $in: Array.from(senderIds) }
+      }).select('name picture').lean();
+      
+      for (const sender of senders) {
+        sendersMap.set(sender._id.toString(), sender);
+      }
+    }
 
-    // Sort messages by createdAt and apply pagination
-    const allMessages = (chatWithMessages.messages || []).sort(
-      (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-
-    const paginatedMessages = allMessages.slice(skip, skip + limit);
-    
-    // Reverse to get chronological order
-    paginatedMessages.reverse();
+    // Populate senderId fields using the map
+    for (const message of paginatedMessages) {
+      if (message.senderId) {
+        const senderIdStr = typeof message.senderId === 'object' && message.senderId.toString
+          ? message.senderId.toString()
+          : message.senderId.toString();
+        const sender = sendersMap.get(senderIdStr);
+        if (sender) {
+          message.senderId = sender;
+        }
+      }
+    }
 
     // Format messages for API response using shared formatter
     const formattedMessages = paginatedMessages.map((msg: any) =>
@@ -169,31 +311,46 @@ export const getChatMessages = asyncHandler(async (req: AuthRequest, res: Respon
 /**
  * Send a message (REST endpoint - socket is primary method)
  */
-export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
-  const { chatId } = req.params;
-  const { content, imageUrl, voiceMessageUrl, voiceMessageDuration } = req.body;
-  const currentUserId = req.user?.userId;
+export const sendMessage = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const currentUserId = authReq.user?.userId;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
 
-  if (!content && !imageUrl && !voiceMessageUrl) {
-    throw new ValidationError('Message content, image, or voice message is required');
+  // Validate params
+  const paramValidation = chatIdParamSchema.safeParse(req.params);
+  if (!paramValidation.success) {
+    throw new ValidationError(paramValidation.error.issues[0]?.message || 'Invalid chat ID format. Please provide a valid chat ID.');
   }
+  const { chatId } = paramValidation.data;
 
-  const { chat, isGroup, error } = await verifyChatAccess(chatId, currentUserId);
+  // Validate body
+  const bodyValidation = sendMessageSchema.safeParse(req.body);
+  if (!bodyValidation.success) {
+    throw new ValidationError(bodyValidation.error.issues[0]?.message || 'Invalid message data. Please provide valid message content, image URL, or voice message.');
+  }
+  const { content, imageUrl, voiceMessageUrl, voiceMessageDuration } = bodyValidation.data;
+
+  const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
-    throw new Error(error.message);
+    if (error.status === 404) {
+      throw new NotFoundError(error.message);
+    } else if (error.status === 403) {
+      throw new ForbiddenError(error.message);
+    } else {
+      throw new ValidationError(error.message);
+    }
   }
 
     const savedMessage = await createMessage(chat, {
       senderId: currentUserId,
-      content,
-      imageUrl,
-      voiceMessageUrl,
-      voiceMessageDuration,
-    }, isGroup);
+      ...(content && { content }),
+      ...(imageUrl && { imageUrl }),
+      ...(voiceMessageUrl && { voiceMessageUrl }),
+      ...(voiceMessageDuration !== undefined && { voiceMessageDuration }),
+    });
 
   res.status(201).json({ message: savedMessage });
 });
@@ -201,17 +358,30 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response):
 /**
  * Mark messages as read
  */
-export const markMessagesAsRead = asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
-  const { chatId } = req.params;
-  const currentUserId = req.user?.userId;
+export const markMessagesAsRead = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const currentUserId = authReq.user?.userId;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
+
+  // Validate params
+  const paramValidation = chatIdParamSchema.safeParse(req.params);
+  if (!paramValidation.success) {
+    throw new ValidationError(paramValidation.error.issues[0]?.message || 'Invalid chat ID format. Please provide a valid chat ID.');
+  }
+  const { chatId } = paramValidation.data;
 
   const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
-    throw new Error(error.message);
+    if (error.status === 404) {
+      throw new NotFoundError(error.message);
+    } else if (error.status === 403) {
+      throw new ForbiddenError(error.message);
+    } else {
+      throw new ValidationError(error.message);
+    }
   }
 
   await markChatMessagesAsRead(chat, currentUserId);
@@ -221,26 +391,39 @@ export const markMessagesAsRead = asyncHandler(async (req: AuthRequest, res: Res
 /**
  * Toggle like on a message
  */
-export const toggleMessageLikeController = asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
-  const { chatId, messageId } = req.params;
-  const currentUserId = req.user?.userId;
+export const toggleMessageLikeController = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const currentUserId = authReq.user?.userId;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
 
-  if (!messageId) {
-    throw new ValidationError('Message ID is required');
+  // Validate params
+  const paramValidation = chatMessageIdParamsSchema.safeParse(req.params);
+  if (!paramValidation.success) {
+    throw new ValidationError(paramValidation.error.issues[0]?.message || 'Invalid chat or message ID format. Please provide valid IDs.');
   }
+  const { chatId, messageId } = paramValidation.data;
 
   const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
-    throw new Error(error.message);
+    if (error.status === 404) {
+      throw new NotFoundError(error.message);
+    } else if (error.status === 403) {
+      throw new ForbiddenError(error.message);
+    } else {
+      throw new ValidationError(error.message);
+    }
   }
 
   const result = await toggleMessageLike(chat, messageId, currentUserId);
   if (result.error) {
-    throw new Error(result.error.message);
+    if (result.error.status === 404) {
+      throw new NotFoundError(result.error.message);
+    } else {
+      throw new ValidationError(result.error.message);
+    }
   }
 
   res.json({
@@ -254,22 +437,30 @@ export const toggleMessageLikeController = asyncHandler(async (req: AuthRequest,
  * Delete a chat (soft delete - removes from user's view)
  * Note: Groups cannot be deleted this way, only regular chats
  */
-export const deleteChat = asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
-  const { chatId } = req.params;
-  const currentUserId = req.user?.userId;
+export const deleteChat = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const currentUserId = authReq.user?.userId;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
 
-  const { chat, isGroup, error } = await verifyChatAccess(chatId, currentUserId);
+  // Validate params
+  const paramValidation = chatIdParamSchema.safeParse(req.params);
+  if (!paramValidation.success) {
+    throw new ValidationError(paramValidation.error.issues[0]?.message || 'Invalid chat ID format. Please provide a valid chat ID.');
+  }
+  const { chatId } = paramValidation.data;
+
+  const { chat, error } = await verifyChatAccess(chatId, currentUserId);
   if (error) {
-    throw new Error(error.message);
-  }
-
-  // Groups cannot be deleted this way
-  if (isGroup) {
-    throw new ValidationError('Groups cannot be deleted. Leave the group instead.');
+    if (error.status === 404) {
+      throw new NotFoundError(error.message);
+    } else if (error.status === 403) {
+      throw new ForbiddenError(error.message);
+    } else {
+      throw new ValidationError(error.message);
+    }
   }
 
     // Add current user to deletedBy array if not already present

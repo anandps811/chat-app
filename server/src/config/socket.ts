@@ -11,6 +11,7 @@ import {
 } from '../services/chatService.js';
 import User from '../models/User.js';
 import { logger } from '../utils/logger.js';
+import { env } from './env.js';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -19,10 +20,36 @@ interface AuthenticatedSocket extends Socket {
 // Store active users (userId -> socketId[])
 const activeUsers = new Map<string, Set<string>>();
 
+/**
+ * Get CORS origin configuration for Socket.IO
+ * Matches the Express CORS configuration
+ */
+const getSocketCorsOrigin = (): string | string[] | boolean => {
+  // In development, allow all origins for easier local development
+  if (env.NODE_ENV === 'development') {
+    return true;
+  }
+
+  // In production, use whitelist from environment variable
+  if (env.ALLOWED_ORIGINS) {
+    const origins = env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean);
+    if (origins.length > 0) {
+      return origins;
+    }
+  }
+
+  // Fallback: in production without ALLOWED_ORIGINS, allow all (not recommended)
+  if (env.NODE_ENV === 'production') {
+    logger.warn('Socket.IO CORS: ALLOWED_ORIGINS not set in production. Allowing all origins (not recommended for security).');
+  }
+  
+  return true;
+};
+
 export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: true,
+      origin: getSocketCorsOrigin(),
       credentials: true,
       methods: ['GET', 'POST'],
     },
@@ -71,6 +98,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     // Handle joining a chat room
     socket.on('join-chat', async (chatId: string) => {
       try {
+        // Check if already in the room to prevent duplicate joins
+        const rooms = Array.from(socket.rooms);
+        if (rooms.includes(`chat:${chatId}`)) {
+          return; // Already in the room, skip
+        }
+
         const { error } = await verifyChatAccess(chatId, userId);
         if (error) {
           socket.emit('error', { message: error.message });
@@ -86,6 +119,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
 
     // Handle leaving a chat room
     socket.on('leave-chat', (chatId: string) => {
+      // Check if actually in the room before leaving
+      const rooms = Array.from(socket.rooms);
+      if (!rooms.includes(`chat:${chatId}`)) {
+        return; // Not in the room, skip
+      }
+      
       socket.leave(`chat:${chatId}`);
       logger.debug(`User left chat`, { userId, chatId });
     });
@@ -93,15 +132,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     // Handle sending a message
     socket.on('send-message', async (data: {
       chatId: string;
-      content?: string;
-      imageUrl?: string;
-      voiceMessageUrl?: string;
-      voiceMessageDuration?: number;
+      content: string;
     }) => {
       try {
-        let { chatId, content, imageUrl, voiceMessageUrl, voiceMessageDuration } = data;
+        const { chatId, content } = data;
 
-        if (!content && !imageUrl && !voiceMessageUrl) {
+        if (!content || content.trim().length === 0) {
           socket.emit('error', { message: 'Message content is required' });
           return;
         }
@@ -109,13 +145,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
         // Verify chat exists and user is a participant, or create it
         let chat;
         let actualChatId = chatId;
-        let isGroup = false;
         
-        const { chat: existingChat, isGroup: isGroupChat, error: accessError } = await verifyChatAccess(chatId, userId);
+        // First, try to verify if chatId is an existing chat
+        const { chat: existingChat, error: accessError } = await verifyChatAccess(chatId, userId);
         
         if (accessError) {
           // Chat doesn't exist, try to create it (chatId might be a userId)
-          // Only create regular chats, not groups
           const { chat: newChat, error: createError } = await findOrCreateChat(userId, chatId);
           
           if (createError) {
@@ -125,25 +160,33 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
           
           chat = newChat;
           actualChatId = chat._id.toString();
-          isGroup = false;
           
           // Join the correct chat room
           if (actualChatId !== chatId) {
             socket.join(`chat:${actualChatId}`);
           }
+          
+          // Emit chat-created event to notify clients
+          const otherParticipantId = chat.participants.find((p: any) => p.toString() !== userId)?.toString();
+          if (otherParticipantId) {
+            io.to(`user:${otherParticipantId}`).emit('chat-created', {
+              chatId: actualChatId,
+              participants: chat.participants.map((p: any) => p.toString()),
+            });
+          }
+          io.to(`user:${userId}`).emit('chat-created', {
+            chatId: actualChatId,
+            participants: chat.participants.map((p: any) => p.toString()),
+          });
         } else {
           chat = existingChat;
-          isGroup = isGroupChat || false;
         }
 
         // Create and save message
         const savedMessage = await createMessage(chat, {
           senderId: userId,
           content,
-          imageUrl,
-          voiceMessageUrl,
-          voiceMessageDuration,
-        }, isGroup);
+        });
 
         if (!savedMessage || !savedMessage._id) {
           socket.emit('error', { message: 'Failed to retrieve saved message' });
@@ -156,51 +199,34 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
         // Emit to all users in the chat room
         io.to(`chat:${actualChatId}`).emit('new-message', { message: messagePayload });
         
-        if (isGroup) {
-          // For group chats, broadcast to all group members
-          const memberIds = chat.members.map((m: any) => m.toString());
-          
-          // Emit to all group members' personal rooms
-          memberIds.forEach((memberId: string) => {
-            io.to(`user:${memberId}`).emit('new-message', { message: messagePayload });
-          });
-          
-          // Emit chat update to all group members
-          const chatUpdate = {
-            chatId: actualChatId,
-            lastMessage: savedMessage.content || 'Media',
-            timestamp: messagePayload.timestamp,
-          };
-          
-          memberIds.forEach((memberId: string) => {
-            io.to(`user:${memberId}`).emit('chat-updated', chatUpdate);
-          });
-        } else {
-          // For one-on-one chats, get the other participant
-          const otherParticipantId = chat.participants.find((p: any) => p.toString() !== userId)?.toString();
-          
-          // Emit to sender's personal room
-          io.to(`user:${userId}`).emit('new-message', { message: messagePayload });
-          
-          if (otherParticipantId) {
-            io.to(`user:${otherParticipantId}`).emit('new-message', { message: messagePayload });
-          }
-
-          // Emit chat update to both participants
-          const chatUpdate = {
-            chatId: actualChatId,
-            lastMessage: savedMessage.content || 'Media',
-            timestamp: messagePayload.timestamp,
-          };
-          
-          if (otherParticipantId) {
-            io.to(`user:${otherParticipantId}`).emit('chat-updated', chatUpdate);
-          }
-          io.to(`user:${userId}`).emit('chat-updated', chatUpdate);
+        // For one-on-one chats, get the other participant
+        const otherParticipantId = chat.participants.find((p: any) => p.toString() !== userId)?.toString();
+        
+        // Emit to sender's personal room
+        io.to(`user:${userId}`).emit('new-message', { message: messagePayload });
+        
+        if (otherParticipantId) {
+          io.to(`user:${otherParticipantId}`).emit('new-message', { message: messagePayload });
         }
 
-        // Confirm message sent
-        socket.emit('message-sent', { messageId: savedMessage._id.toString() });
+        // Emit chat update to both participants
+        const chatUpdate = {
+          chatId: actualChatId,
+          lastMessage: savedMessage.content || '',
+          timestamp: messagePayload.timestamp,
+        };
+        
+        if (otherParticipantId) {
+          io.to(`user:${otherParticipantId}`).emit('chat-updated', chatUpdate);
+        }
+        io.to(`user:${userId}`).emit('chat-updated', chatUpdate);
+
+        // Confirm message sent with actual chatId (in case chat was just created)
+        socket.emit('message-sent', { 
+          messageId: savedMessage._id.toString(),
+          chatId: actualChatId,
+          wasNewChat: actualChatId !== chatId, // Indicates if chat was just created
+        });
       } catch (error: any) {
         logger.error('Error sending message', { error, userId, chatId: data.chatId });
         socket.emit('error', { message: 'Failed to send message' });

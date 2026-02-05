@@ -5,7 +5,7 @@ export interface IUser extends Document {
   email: string;
   mobileNumber: string;
   password: string;
-  refreshToken?: string;
+  // Note: refreshToken field removed - refresh tokens are now stored in separate RefreshToken collection
 }
 
 const userSchema = new Schema<IUser>(
@@ -14,7 +14,7 @@ const userSchema = new Schema<IUser>(
     email: { type: String, required: true, unique: true },
     mobileNumber: { type: String, required: true, unique: true },
     password: { type: String, required: true, select: false },
-    refreshToken: { type: String, select: false },
+    // Note: refreshToken field removed - refresh tokens are now stored in separate RefreshToken collection
   },
   { timestamps: true }
 );

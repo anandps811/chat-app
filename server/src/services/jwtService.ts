@@ -1,6 +1,7 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import crypto from 'crypto';
+import { UnauthorizedError } from '../utils/errors.js';
 
 const JWT_SECRET = env.JWT_SECRET;
 const JWT_EXPIRES_IN = env.JWT_EXPIRES_IN;
@@ -48,11 +49,11 @@ export const verifyToken = (token: string): TokenPayload => {
     return decoded;
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
-      throw new Error('Token has expired');
+      throw new UnauthorizedError('Token has expired');
     } else if (error instanceof jwt.JsonWebTokenError) {
-      throw new Error('Invalid token');
+      throw new UnauthorizedError('Invalid token');
     } else {
-      throw new Error('Token verification failed');
+      throw new UnauthorizedError('Token verification failed');
     }
   }
 };
