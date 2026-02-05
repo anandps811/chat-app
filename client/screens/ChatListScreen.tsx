@@ -1,14 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useChats } from '../hooks';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useChats, useDeleteChat } from '../hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import socketService from '../services/socket';
+import { sanitizeSearchQuery } from '../utils/sanitization';
 
-const ChatListScreen: React.FC = () => {
+// Pure Sidebar Component - Always stays mounted
+const ChatListSidebar: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: chats = [], isLoading, error } = useChats();
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const { data: chats, isLoading } = useChats();
+  const deleteChatMutation = useDeleteChat();
+  
+  // Get current chatId from URL to highlight active chat
+  const getCurrentChatId = () => {
+    const path = location.pathname;
+    if (path.startsWith('/chats/') && path !== '/chats' && path !== '/chats/new') {
+      const chatId = path.split('/chats/')[1];
+      // Remove any query parameters or hash
+      return chatId.split('?')[0].split('#')[0];
+    }
+    return null;
+  };
+  
+  const currentChatId = getCurrentChatId();
 
   // Listen for chat updates and creation to refresh the list
   useEffect(() => {
@@ -28,133 +47,238 @@ const ChatListScreen: React.FC = () => {
     };
   }, [queryClient]);
 
-  const filteredChats = chats.filter(chat =>
+  // Ensure chats is always an array
+  const chatsArray = Array.isArray(chats) ? chats : [];
+  const filteredChats = chatsArray.filter(chat =>
     chat.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleDeleteClick = (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation(); // Prevent navigation
+    setChatToDelete(chatId);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (chatToDelete) {
+      deleteChatMutation.mutate(chatToDelete, {
+        onSuccess: () => {
+          setShowDeleteConfirm(false);
+          setChatToDelete(null);
+          // If we're viewing the deleted chat, navigate back to chat list
+          if (currentChatId === chatToDelete) {
+            navigate('/chats');
+          }
+        },
+        onError: (error) => {
+          console.error('Failed to delete chat:', error);
+          // Keep dialog open on error so user can retry
+        },
+      });
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setChatToDelete(null);
+  };
+
   return (
-    <div className="relative flex h-screen w-full flex-col lg:flex-row bg-ivory overflow-hidden transition-all duration-300">
-      
-      {/* Desktop Navigation Column (Hidden on Mobile) */}
-      <div className="hidden lg:flex flex-col w-[320px] xl:w-[400px] border-r border-charcoal/5 h-full p-12 shrink-0">
-        <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal mb-20">
-          Collection No. 01
+    <div className="relative flex h-full w-full flex-col bg-ivory overflow-hidden">
+      {/* Mobile Navigation (Hidden on Desktop) */}
+      <nav className="lg:hidden flex items-center pt-6 px-6 justify-between shrink-0">
+        <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal">
+          Collection
         </div>
-        
-        <div className="flex-1">
-          <h1 className="tracking-tight text-5xl font-bold leading-tight serif-italic text-charcoal mb-4">
-            Messages
-          </h1>
-          <div className="w-12 h-[1px] bg-charcoal/20 mb-8"></div>
-          <p className="font-sans text-charcoal/60 text-sm font-light leading-relaxed tracking-wide max-w-[200px]">
-            A sanctuary for meaningful conversation.
-          </p>
-        </div>
-
-        <div className="mt-auto">
+        <div className="flex items-center gap-2">
           <button 
-            onClick={() => navigate('/chats/new')}
-            className="flex w-full cursor-pointer items-center justify-center rounded-full h-14 bg-charcoal text-ivory font-display text-sm font-medium tracking-widest uppercase transition-all hover:bg-black shadow-sm"
+            onClick={() => navigate('/profile-setup')}
+            className="text-charcoal flex size-10 items-center justify-center hover:opacity-70 transition-opacity"
+            title="Settings"
           >
-            New Message
+            <span className="material-symbols-outlined text-2xl">settings</span>
           </button>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="relative flex flex-1 flex-col h-full overflow-hidden">
-        
-        {/* Mobile Navigation (Hidden on Desktop) */}
-        <nav className="lg:hidden flex items-center pt-6 px-6 justify-between">
-          <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal">
-            Collection No. 01
-          </div>
           <button 
             onClick={() => navigate('/chats/new')}
-            className="text-charcoal flex size-10 items-center justify-center hover:opacity-70"
+            className="text-charcoal flex size-10 items-center justify-center hover:opacity-70 transition-opacity"
+            title="New Message"
           >
             <span className="material-symbols-outlined text-2xl">add</span>
           </button>
-        </nav>
+        </div>
+      </nav>
 
-        {/* Mobile Header (Hidden on Desktop) */}
-        <header className="lg:hidden px-6 pt-10 pb-4">
-          <h1 className="tracking-tight text-3xl font-bold leading-tight serif-italic text-charcoal">
+      {/* Mobile Header (Hidden on Desktop) */}
+      <header className="lg:hidden px-6 pt-10 pb-4 shrink-0">
+        <h1 className="tracking-tight text-3xl font-bold leading-tight serif-italic text-charcoal">
+          Messages
+        </h1>
+      </header>
+
+      {/* Desktop Header (Hidden on Mobile) */}
+      <div className="hidden lg:flex flex-col px-6 pt-6 pb-4 border-b border-charcoal/5 shrink-0">
+        <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal mb-4">
+          Collection
+        </div>
+        <div className="flex items-center justify-between">
+          <h1 className="tracking-tight text-2xl font-bold leading-tight serif-italic text-charcoal">
             Messages
           </h1>
-        </header>
-
-        {/* Scrollable Message List Container */}
-        <div className="flex flex-1 flex-col overflow-hidden px-6 md:px-12 lg:px-16 lg:py-16 max-w-5xl">
-          
-          {/* Search Bar - Preserved Style */}
-          <div className="mb-8">
-            <div className="flex w-full items-center rounded-lg border border-charcoal/10 bg-white/50 focus-within:bg-white focus-within:ring-1 focus-within:ring-primary transition-all overflow-hidden h-12 md:h-14">
-              <div className="text-charcoal/40 flex items-center justify-center pl-4">
-                <span className="material-symbols-outlined text-xl">search</span>
-              </div>
-              <input 
-                className="flex-1 border-none bg-transparent text-charcoal focus:ring-0 placeholder:text-charcoal/30 px-4 text-sm md:text-base font-sans outline-none" 
-                placeholder="Search conversations..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* List - Using the exact same card patterns */}
-          <div className="flex-1 overflow-y-auto pr-2 -mr-2 pb-10 custom-scrollbar">
-            {isLoading ? (
-              <p className="text-charcoal/40 font-display text-xs uppercase tracking-widest">Loading...</p>
-            ) : (
-              <div className="flex flex-col gap-3 md:gap-4">
-                {filteredChats.map(chat => (
-                  <div 
-                    key={chat.id}
-                    onClick={() => navigate(`/chats/${chat.id}`)}
-                    className="flex items-center gap-4 p-4 md:p-5 rounded-lg border border-charcoal/5 bg-white/50 hover:bg-white hover:border-charcoal/10 cursor-pointer active:scale-[0.98] transition-all"
-                  >
-                    <div className="relative shrink-0">
-                      {chat.avatar ? (
-                        <div 
-                          className="bg-center bg-no-repeat aspect-square bg-cover rounded-full h-12 w-12 md:h-14 md:w-14 border border-charcoal/10"
-                          style={{ backgroundImage: `url("${chat.avatar}")` }}
-                        />
-                      ) : (
-                        <div className="bg-charcoal/5 flex items-center justify-center rounded-full h-12 w-12 md:h-14 md:w-14 border border-charcoal/10">
-                          <span className="text-charcoal font-display font-bold text-lg">{chat.name.charAt(0)}</span>
-                        </div>
-                      )}
-                      {chat.isOnline && (
-                        <div className="absolute bottom-0 right-0 size-3 rounded-full bg-[#0bda5b] border-2 border-ivory"></div>
-                      )}
-                    </div>
-                    
-                    <div className="flex flex-col justify-center flex-1 min-w-0">
-                      <div className="flex justify-between items-baseline mb-0.5">
-                        <p className="serif-italic text-base md:text-lg font-bold text-charcoal truncate">{chat.name}</p>
-                        <p className="text-charcoal/40 text-[10px] md:text-xs font-sans tracking-tight uppercase">
-                          {chat.time}
-                        </p>
-                      </div>
-                      <div className="flex justify-between items-center gap-2">
-                        <p className="text-charcoal/60 text-xs md:text-sm font-sans line-clamp-1 leading-snug">{chat.lastMessage}</p>
-                        {chat.unreadCount > 0 && (
-                          <div className="size-5 rounded-full bg-charcoal flex items-center justify-center shrink-0 scale-90">
-                            <span className="text-[9px] text-ivory font-bold">{chat.unreadCount}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => navigate('/profile-setup')}
+              className="text-charcoal flex size-10 items-center justify-center hover:opacity-70 transition-opacity"
+              title="Settings"
+            >
+              <span className="material-symbols-outlined text-xl">settings</span>
+            </button>
+            <button 
+              onClick={() => navigate('/chats/new')}
+              className="text-charcoal flex size-10 items-center justify-center hover:opacity-70 transition-opacity"
+              title="New Message"
+            >
+              <span className="material-symbols-outlined text-xl">add</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Scrollable Message List Container */}
+      <div className="flex flex-1 flex-col overflow-hidden px-4 py-4 lg:px-4 min-h-0">
+        {/* Search Bar */}
+        <div className="mb-4 px-2">
+          <div className="flex w-full items-center rounded-lg border border-charcoal/10 bg-white/50 focus-within:bg-white focus-within:ring-1 focus-within:ring-primary transition-all overflow-hidden h-10 lg:h-12">
+            <div className="text-charcoal/40 flex items-center justify-center pl-3">
+              <span className="material-symbols-outlined text-lg">search</span>
+            </div>
+            <input 
+              className="flex-1 border-none bg-transparent text-charcoal focus:ring-0 placeholder:text-charcoal/30 px-3 text-sm font-sans outline-none" 
+              placeholder="Search conversations..." 
+              value={searchQuery}
+              onChange={(e) => {
+                const sanitized = sanitizeSearchQuery(e.target.value);
+                setSearchQuery(sanitized);
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Chat List */}
+        <div className="flex-1 overflow-y-auto pr-1 -mr-1 pb-4 custom-scrollbar">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-charcoal/40 font-display text-xs uppercase tracking-widest">Loading...</p>
+            </div>
+          ) : filteredChats.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-charcoal/40 font-display text-xs uppercase tracking-widest">No conversations yet</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filteredChats.map(chat => {
+                // Compare chat IDs as strings to ensure proper matching
+                const chatIdStr = String(chat.id);
+                const currentChatIdStr = currentChatId ? String(currentChatId) : null;
+                const isActive = currentChatIdStr === chatIdStr;
+                
+                return (
+                <div 
+                  key={chat.id}
+                  onClick={() => navigate(`/chats/${chat.id}`)}
+                  className={`group flex items-center gap-3 p-3 rounded-lg border cursor-pointer active:scale-[0.98] transition-all relative ${
+                    isActive
+                      ? 'bg-charcoal/10 border-charcoal/20 hover:bg-charcoal/15 shadow-sm'
+                      : 'border-charcoal/5 bg-white/50 hover:bg-white hover:border-charcoal/10'
+                  }`}
+                >
+                  <div className="relative shrink-0">
+                    {chat.avatar ? (
+                      <div 
+                        className="bg-center bg-no-repeat aspect-square bg-cover rounded-full h-10 w-10 lg:h-12 lg:w-12 border border-charcoal/10"
+                        style={{ backgroundImage: `url("${chat.avatar}")` }}
+                      />
+                    ) : (
+                      <div className="bg-charcoal/5 flex items-center justify-center rounded-full h-10 w-10 lg:h-12 lg:w-12 border border-charcoal/10">
+                        <span className="text-charcoal font-display font-bold text-sm lg:text-base">{chat.name.charAt(0)}</span>
+                      </div>
+                    )}
+                    {chat.isOnline && (
+                      <div className="absolute bottom-0 right-0 size-2.5 lg:size-3 rounded-full bg-[#0bda5b] border-2 border-ivory"></div>
+                    )}
+                  </div>
+                  
+                  <div className="flex flex-col justify-center flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline mb-0.5">
+                      <p className="serif-italic text-sm lg:text-base font-bold text-charcoal truncate">{chat.name}</p>
+                      <p className="text-charcoal/40 text-[9px] lg:text-[10px] font-sans tracking-tight uppercase ml-2">
+                        {chat.time}
+                      </p>
+                    </div>
+                    <div className="flex justify-between items-center gap-2">
+                      <p className="text-charcoal/60 text-xs font-sans line-clamp-1 leading-snug">{chat.lastMessage}</p>
+                      {(chat.unreadCount ?? 0) > 0 && (
+                        <div className="size-4 lg:size-5 rounded-full bg-charcoal flex items-center justify-center shrink-0">
+                          <span className="text-[8px] lg:text-[9px] text-ivory font-bold">{chat.unreadCount}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Delete Button - Shows on hover (desktop) or always visible (mobile) */}
+                  <button
+                    onClick={(e) => handleDeleteClick(e, chat.id)}
+                    disabled={deleteChatMutation.isPending}
+                    className="opacity-0 group-hover:opacity-100 lg:opacity-0 lg:group-hover:opacity-100 flex items-center justify-center size-8 rounded-lg hover:bg-red-500/10 text-red-500 transition-all shrink-0 disabled:opacity-50"
+                    title="Delete chat"
+                  >
+                    <span className="material-symbols-outlined text-lg">delete</span>
+                  </button>
+                </div>
+              );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-ivory rounded-lg border border-charcoal/10 p-6 max-w-md w-full shadow-lg">
+            <h2 className="text-xl font-bold serif-italic text-charcoal mb-2">Delete Chat</h2>
+            <p className="text-charcoal/70 text-sm mb-6">
+              Are you sure you want to delete this conversation? This action cannot be undone.
+            </p>
+            {deleteChatMutation.isError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                <p className="text-red-600 text-sm">
+                  {deleteChatMutation.error instanceof Error 
+                    ? deleteChatMutation.error.message 
+                    : 'Failed to delete chat'}
+                </p>
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleCancelDelete}
+                disabled={deleteChatMutation.isPending}
+                className="px-4 py-2 rounded-lg border border-charcoal/20 text-charcoal hover:bg-charcoal/5 transition-colors disabled:opacity-50 font-display"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleteChatMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50 font-display"
+              >
+                {deleteChatMutation.isPending ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default ChatListScreen;
+export default ChatListSidebar;

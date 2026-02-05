@@ -6,6 +6,10 @@ export interface AuthRequest extends Request {
   user?: { userId: string; id: string };
 }
 
+/**
+ * Legacy authentication middleware (simpler version)
+ * Uses JWT_SECRET from validated environment configuration
+ */
 export const protect = (
   req: any,
   res: Response,
@@ -21,16 +25,23 @@ export const protect = (
     const secret = process.env.ACCESS_TOKEN_SECRET || env.JWT_SECRET;
     const decoded = jwt.verify(
       token,
-      secret
+      env.JWT_SECRET
     ) as any;
 
     req.user = { id: decoded.userId };
     next();
-  } catch {
+  } catch (error: any) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: "Token expired", message: "Token has expired" });
+    }
     return res.sendStatus(403);
   }
 };
 
+/**
+ * Authentication middleware with detailed error handling
+ * Uses JWT_SECRET from validated environment configuration
+ */
 export const authenticateToken = (
   req: Request,
   res: Response,
@@ -43,14 +54,14 @@ export const authenticateToken = (
 
   const token = authHeader.split(" ")[1];
 
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized", message: "Token is missing" });
+  }
+
   try {
-    const secret = process.env.JWT_SECRET || process.env.ACCESS_TOKEN_SECRET || env.JWT_SECRET;
-    if (!secret) {
-      return res.status(500).json({ error: "Server configuration error", message: "JWT secret not configured" });
-    }
     const decoded = jwt.verify(
-      token || 'null',
-      secret
+      token,
+      env.JWT_SECRET
     ) as any;
 
     (req as AuthRequest).user = { userId: decoded.userId, id: decoded.userId };
@@ -59,6 +70,9 @@ export const authenticateToken = (
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: "Token expired", message: "Token has expired" });
     }
-    return res.status(403).json({ error: "Invalid token", message: "Invalid or malformed token" });
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(403).json({ error: "Invalid token", message: "Invalid or malformed token" });
+    }
+    return res.status(403).json({ error: "Invalid token", message: "Token verification failed" });
   }
 };

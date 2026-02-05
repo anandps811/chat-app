@@ -44,7 +44,7 @@ const WelcomeScreen: React.FC<Props> = ({ onGetStarted, onLogin }) => {
       {/* Header Label */}
       <View style={[styles.header, { paddingTop: insets.top + 32 }]}>
         <Text style={styles.headerLabel}>
-          Collection No. 01
+          Collection
         </Text>
       </View>
 

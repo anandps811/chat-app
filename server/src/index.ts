@@ -3,6 +3,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
+import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import { connectDatabase } from './config/db.js';
@@ -21,9 +22,35 @@ const PORT = env.PORT;
 app.use(securityHeaders);
 
 // CORS configuration
+const getCorsOrigin = (): string | string[] | boolean => {
+  // In development, allow all origins for easier local development
+  if (env.NODE_ENV === 'development') {
+    return true;
+  }
+
+  // In production, use whitelist from environment variable
+  if (env.ALLOWED_ORIGINS) {
+    const origins = env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean);
+    if (origins.length > 0) {
+      return origins;
+    }
+  }
+
+  // Fallback: in production without ALLOWED_ORIGINS, allow all (not recommended)
+  // Log a warning about this
+  if (env.NODE_ENV === 'production') {
+    logger.warn('CORS: ALLOWED_ORIGINS not set in production. Allowing all origins (not recommended for security).');
+  }
+  
+  return true;
+};
+
 app.use(cors({
-  origin: true,
+  origin: getCorsOrigin(),
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
 }));
 
 // Parse cookies - must be before routes
@@ -44,8 +71,11 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.use('/api/auth', userRoutes);
-app.use('/api', userRoutes); // Also mount user routes at /api for profile/search
+// Authentication routes
+app.use('/api/auth', authRoutes);
+// User profile and search routes
+app.use('/api/users', userRoutes);
+// Chat routes
 app.use('/api/chats', chatRoutes);
 
 // 404 handler - must be after all routes

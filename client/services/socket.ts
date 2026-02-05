@@ -4,20 +4,36 @@
  */
 
 import { io, Socket } from 'socket.io-client';
+import {
+  SocketMessageEvent,
+  SocketMessageSentEvent,
+  SocketMessageReadEvent,
+  SocketMessageLikedEvent,
+  SocketUserStatusEvent,
+  SocketChatUpdatedEvent,
+  SocketChatCreatedEvent,
+  SocketTypingEvent,
+} from '../types';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
 class SocketService {
   private socket: Socket | null = null;
-  private token: string | null = null;
   private joinedChats: Set<string> = new Set(); // Track joined chats to prevent duplicates
+  private currentToken: string | null = null;
 
   connect(token: string) {
-    if (this.socket?.connected) {
+    // If already connected with the same token, don't reconnect
+    if (this.socket?.connected && this.currentToken === token) {
       return;
     }
 
-    this.token = token;
+    // If connected with different token, disconnect first
+    if (this.socket?.connected && this.currentToken !== token) {
+      this.disconnect();
+    }
+
+    this.currentToken = token;
     this.socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket', 'polling'],
@@ -40,8 +56,33 @@ class SocketService {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
+      this.currentToken = null;
       this.joinedChats.clear(); // Clear joined chats on disconnect
     }
+  }
+
+  /**
+   * Reconnect with a new token (useful when token is refreshed)
+   */
+  reconnectWithToken(token: string) {
+    // Store currently joined chats before disconnecting
+    const chatsToRejoin = Array.from(this.joinedChats);
+    
+    // Disconnect current connection
+    this.disconnect();
+    
+    // Reconnect with new token
+    this.connect(token);
+    
+    // Rejoin all previously joined chats
+    // Use setTimeout to ensure socket is connected before joining
+    setTimeout(() => {
+      if (this.socket?.connected) {
+        chatsToRejoin.forEach(chatId => {
+          this.joinChat(chatId);
+        });
+      }
+    }, 100);
   }
 
   // Send a message via socket
@@ -109,16 +150,19 @@ class SocketService {
   }
 
   // Event listeners
-  onMessage(callback: (data: { message: any }) => void) {
+  onMessage(callback: (data: SocketMessageEvent) => void) {
     if (!this.socket) return () => {};
     
+    // Add listener - Socket.IO allows multiple listeners per event
+    // Each component manages its own listener via the cleanup function
     this.socket.on('new-message', callback);
     return () => {
+      // Remove only this specific callback to avoid affecting other listeners
       this.socket?.off('new-message', callback);
     };
   }
 
-  onMessageSent(callback: (data: { messageId: string; chatId: string; wasNewChat?: boolean }) => void) {
+  onMessageSent(callback: (data: SocketMessageSentEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('message-sent', callback);
@@ -127,7 +171,7 @@ class SocketService {
     };
   }
 
-  onMessageRead(callback: (data: { chatId: string; messageIds: string[] }) => void) {
+  onMessageRead(callback: (data: SocketMessageReadEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('messages-read', callback);
@@ -136,7 +180,7 @@ class SocketService {
     };
   }
 
-  onMessageLiked(callback: (data: { chatId: string; messageId: string; isLiked: boolean; likesCount: number }) => void) {
+  onMessageLiked(callback: (data: SocketMessageLikedEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('message-liked', callback);
@@ -145,7 +189,7 @@ class SocketService {
     };
   }
 
-  onUserOnline(callback: (data: { userId: string }) => void) {
+  onUserOnline(callback: (data: SocketUserStatusEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('user-online', callback);
@@ -154,7 +198,7 @@ class SocketService {
     };
   }
 
-  onUserOffline(callback: (data: { userId: string }) => void) {
+  onUserOffline(callback: (data: SocketUserStatusEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('user-offline', callback);
@@ -163,7 +207,7 @@ class SocketService {
     };
   }
 
-  onChatUpdated(callback: (data: { chatId: string; lastMessage: string; timestamp: string }) => void) {
+  onChatUpdated(callback: (data: SocketChatUpdatedEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('chat-updated', callback);
@@ -172,7 +216,7 @@ class SocketService {
     };
   }
 
-  onChatCreated(callback: (data: { chatId: string; participants: string[] }) => void) {
+  onChatCreated(callback: (data: SocketChatCreatedEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('chat-created', callback);
@@ -181,7 +225,7 @@ class SocketService {
     };
   }
 
-  onTyping(callback: (data: { chatId: string; userId: string; isTyping: boolean }) => void) {
+  onTyping(callback: (data: SocketTypingEvent) => void) {
     if (!this.socket) return () => {};
     
     this.socket.on('typing', callback);

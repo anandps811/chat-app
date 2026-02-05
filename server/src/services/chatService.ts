@@ -1,6 +1,8 @@
 import Chat from '../models/Chat.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
+import { UnprocessableEntityError, NotFoundError } from '../utils/errors.js';
+import { withTransaction } from '../utils/transaction.js';
 
 export interface MessageData {
   senderId: string;
@@ -20,12 +22,12 @@ export const verifyChatAccess = async (
   const chat = await Chat.findById(chatId);
   
   if (!chat) {
-    return { chat: null, error: { status: 404, message: 'Chat not found' } };
+    return { chat: null, error: { status: 404, message: 'Chat not found. The chat you are trying to access does not exist.' } };
   }
   
   // Verify user is a participant
   if (!chat.participants.some((p: any) => p.toString() === userId)) {
-    return { chat: null, error: { status: 403, message: 'Access denied' } };
+    return { chat: null, error: { status: 403, message: 'Access denied. You do not have permission to access this chat.' } };
   }
   
   return { chat };
@@ -33,32 +35,55 @@ export const verifyChatAccess = async (
 
 /**
  * Find or create chat between two users
+ * Uses transaction to ensure atomicity of user check and chat creation
  */
 export const findOrCreateChat = async (
   userId1: string,
   userId2: string
 ): Promise<{ chat: any; error?: { status: number; message: string } }> => {
-  // Check if other user exists
-  const otherUser = await User.findById(userId2);
-  if (!otherUser) {
-    return { chat: null, error: { status: 404, message: 'User not found' } };
-  }
+  try {
+    // Use transaction to ensure user check and chat creation are atomic
+    const result = await withTransaction(async (session) => {
+      // Check if other user exists
+      const otherUser = await User.findById(userId2).session(session);
+      if (!otherUser) {
+        throw new Error('USER_NOT_FOUND');
+      }
 
-  // Check if chat already exists
-  let chat = await Chat.findOne({
-    participants: { $all: [userId1, userId2] },
-  }).populate('participants', 'name picture email');
+      // Check if chat already exists
+      let chat = await Chat.findOne({
+        participants: { $all: [userId1, userId2] },
+      }).session(session).populate('participants', 'name picture email');
 
-  if (!chat) {
-    // Create new chat
-    chat = new Chat({
-      participants: [userId1, userId2],
+      if (!chat) {
+        // Create new chat within transaction
+        const chats = await Chat.create([{
+          participants: [userId1, userId2],
+        }], { session });
+        
+        const newChat = chats[0];
+        if (!newChat) {
+          throw new Error('FAILED_TO_CREATE_CHAT');
+        }
+        
+        chat = newChat;
+        await chat.populate('participants', 'name picture email');
+      }
+
+      return chat;
     });
-    await chat.save();
-    await chat.populate('participants', 'name picture email');
-  }
 
-  return { chat };
+    return { chat: result };
+  } catch (error: any) {
+    if (error.message === 'USER_NOT_FOUND') {
+      return { chat: null, error: { status: 404, message: 'User not found. The user you are trying to chat with does not exist.' } };
+    }
+    if (error.message === 'FAILED_TO_CREATE_CHAT') {
+      return { chat: null, error: { status: 500, message: 'Failed to create chat. Please try again or contact support if the problem persists.' } };
+    }
+    // Re-throw other errors
+    throw error;
+  }
 };
 
 /**
@@ -90,12 +115,18 @@ export const createMessage = async (
   const chatWithMessage = await Chat.findById(chat._id).lean();
   
   if (!chatWithMessage?.messages || chatWithMessage.messages.length === 0) {
-    throw new Error('Failed to save message');
+    throw new UnprocessableEntityError('Failed to save message. Please try again or contact support if the problem persists.');
   }
 
   // Get the last message and populate its senderId
   const lastMessage = chatWithMessage.messages[chatWithMessage.messages.length - 1];
+  
+  if (!lastMessage) {
+    throw new NotFoundError('Failed to retrieve the saved message. The message may not have been saved correctly.');
+  }
+
   if (lastMessage.senderId) {
+    // Use findById for single message (not N+1 since it's just one query)
     const sender = await User.findById(lastMessage.senderId).select('name picture').lean();
     if (sender) {
       lastMessage.senderId = sender;
@@ -210,7 +241,7 @@ export const toggleMessageLike = async (
   const message = chat.messages.id(messageId);
   
   if (!message) {
-    return { isLiked: false, likesCount: 0, error: { status: 404, message: 'Message not found' } };
+    return { isLiked: false, likesCount: 0, error: { status: 404, message: 'Message not found. The message you are trying to like does not exist in this chat.' } };
   }
 
   const likedByArray = message.likedBy || [];

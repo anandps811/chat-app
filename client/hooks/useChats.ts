@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiService from '../services/api';
-import { ChatPreview } from '../types';
+import { ChatPreview, MessagesQueryData } from '../types';
 
 interface BackendChat {
   id: string;
@@ -46,8 +46,10 @@ export const useChats = () => {
       if (!response.data) {
         throw new Error('No data received');
       }
+      // Ensure chats is an array
+      const chatsArray = Array.isArray(response.data.chats) ? response.data.chats : [];
       // Transform backend chat format to ChatPreview format
-      const formattedChats: ChatPreview[] = response.data.chats.map((chat: BackendChat) => ({
+      const formattedChats: ChatPreview[] = chatsArray.map((chat: BackendChat) => ({
         id: chat.chatId,
         name: chat.name,
         lastMessage: chat.lastMessage || 'No messages yet',
@@ -58,23 +60,81 @@ export const useChats = () => {
       }));
       return formattedChats;
     },
+    // Ensure we always return an array, even if query fails
+    placeholderData: [],
+    // Keep data fresh for 30 seconds to prevent unnecessary refetches
+    staleTime: 30000,
+    // Keep data in cache even when component unmounts
+    gcTime: 5 * 60 * 1000, // 5 minutes
   });
 };
+
+interface DeleteChatResponse {
+  success: boolean;
+  message: string;
+}
+
+interface DeleteChatContext {
+  previousChats: ChatPreview[] | undefined;
+  previousMessages: MessagesQueryData | undefined;
+}
 
 export const useDeleteChat = () => {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<DeleteChatResponse, Error, string, DeleteChatContext>({
     mutationFn: async (chatId: string) => {
       const response = await apiService.deleteChat(chatId);
       if (response.error) {
         throw new Error(response.error);
       }
-      return response;
+      if (!response.data) {
+        throw new Error('Failed to delete chat');
+      }
+      return response.data;
     },
-    onSuccess: () => {
-      // Invalidate and refetch chats
+    // Optimistic update: remove chat immediately
+    onMutate: async (chatId) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['chats'] });
+      await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
+
+      // Snapshot the previous values
+      const previousChats = queryClient.getQueryData<ChatPreview[]>(['chats']);
+      const previousMessages = queryClient.getQueryData<MessagesQueryData>(['messages', chatId]);
+
+      // Optimistically remove the chat
+      if (Array.isArray(previousChats)) {
+        const updatedChats = previousChats.filter((chat) => chat.id !== chatId);
+        queryClient.setQueryData<ChatPreview[]>(['chats'], updatedChats);
+      }
+
+      // Remove messages for this chat
+      queryClient.removeQueries({ queryKey: ['messages', chatId] });
+
+      // Return context for rollback
+      return { previousChats, previousMessages };
+    },
+    // On error, rollback to previous state
+    onError: (_err, chatId, context) => {
+      if (context?.previousChats) {
+        queryClient.setQueryData(['chats'], context.previousChats);
+      }
+      if (context?.previousMessages) {
+        queryClient.setQueryData(['messages', chatId], context.previousMessages);
+      }
+    },
+    // On success, invalidate to ensure consistency and navigate if needed
+    onSuccess: (_data, chatId) => {
       queryClient.invalidateQueries({ queryKey: ['chats'] });
+      // Remove any cached messages for this chat
+      queryClient.removeQueries({ queryKey: ['messages', chatId] });
+    },
+    // Always refetch after error or success
+    onSettled: (_data, _error, chatId) => {
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+      // Clean up messages cache for deleted chat
+      queryClient.removeQueries({ queryKey: ['messages', chatId] });
     },
   });
 };

@@ -1,6 +1,10 @@
 import jwt, { SignOptions } from "jsonwebtoken";
 import { env } from "../config/env.js";
 
+/**
+ * Generate a JWT access token for a user
+ * Uses JWT_SECRET from validated environment configuration
+ */
 export const generateAccessToken = (userId: string) => {
   const secret = process.env.ACCESS_TOKEN_SECRET || env.JWT_SECRET;
   if (!secret) {
@@ -14,6 +18,10 @@ export const generateAccessToken = (userId: string) => {
   );
 };
 
+/**
+ * Generate a JWT refresh token for a user
+ * Uses JWT_SECRET from validated environment configuration
+ */
 export const generateRefreshToken = (userId: string) => {
   const secret = process.env.REFRESH_TOKEN_SECRET || env.JWT_SECRET;
   if (!secret) {

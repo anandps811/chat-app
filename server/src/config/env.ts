@@ -6,7 +6,10 @@ import { z } from 'zod';
  */
 const envSchema = z.object({
   // Server Configuration
+  // NODE_ENV: Render will set this to 'production' in the dashboard
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // PORT: Render automatically assigns a random port (e.g., 10000) via process.env.PORT
+  // This will use process.env.PORT if set by Render, otherwise defaults to 3000 for local dev
   PORT: z.string().default('3000').transform(Number),
 
   // Database Configuration
@@ -44,6 +47,9 @@ const envSchema = z.object({
 
   // Logging Configuration
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).optional(),
+
+  // CORS Configuration
+  ALLOWED_ORIGINS: z.string().optional(), // Comma-separated list of allowed origins
 });
 
 /**

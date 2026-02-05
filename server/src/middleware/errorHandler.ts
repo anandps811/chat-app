@@ -49,13 +49,37 @@ const isMongooseCastError = (error: unknown): boolean => {
  * Format Zod validation errors
  */
 const formatZodError = (error: ZodError): ErrorResponse => {
+  const issues = error.issues.map((issue) => {
+    const field = issue.path.join('.') || 'unknown';
+    let message = issue.message || 'Validation error';
+    
+    // Enhance common validation error messages
+    if (issue.code === 'too_small' && issue.type === 'string') {
+      message = `${field} must be at least ${issue.minimum} characters long`;
+    } else if (issue.code === 'too_big' && issue.type === 'string') {
+      message = `${field} must not exceed ${issue.maximum} characters`;
+    } else if (issue.code === 'invalid_type') {
+      message = `${field} must be of type ${issue.expected}, but received ${issue.received}`;
+    } else if (issue.code === 'invalid_string' && issue.validation === 'email') {
+      message = `Please provide a valid email address for ${field}`;
+    } else if (issue.code === 'invalid_string' && issue.validation === 'regex') {
+      message = `${field} format is invalid. ${message}`;
+    }
+    
+    return {
+      field,
+      message,
+    };
+  });
+  
+  const mainMessage = issues.length === 1 
+    ? issues[0].message 
+    : `Validation failed for ${issues.length} field(s). Please check the details and try again.`;
+  
   return {
     error: 'Validation failed',
-    message: 'Invalid input data',
-    details: error.issues.map((issue) => ({
-      field: issue.path.join('.') || 'unknown',
-      message: issue.message || 'Validation error',
-    })),
+    message: mainMessage,
+    details: issues,
   };
 };
 
@@ -64,9 +88,16 @@ const formatZodError = (error: ZodError): ErrorResponse => {
  */
 const formatMongoDuplicateError = (error: any): ErrorResponse => {
   const field = Object.keys(error.keyPattern || {})[0] || 'field';
+  const fieldName = field === 'email' ? 'email address' : 
+                    field === 'mobileNumber' ? 'mobile number' : 
+                    field;
   return {
     error: 'Resource already exists',
-    message: `A resource with this ${field} already exists`,
+    message: `A user with this ${fieldName} already exists. Please use a different ${fieldName} or try logging in.`,
+    details: [{
+      field,
+      message: `This ${fieldName} is already registered`,
+    }],
   };
 };
 
@@ -90,9 +121,21 @@ const formatMongooseValidationError = (error: mongoose.Error.ValidationError): E
  * Format Mongoose cast error
  */
 const formatMongooseCastError = (error: mongoose.Error.CastError): ErrorResponse => {
+  const fieldName = error.path || 'field';
+  const value = error.value || 'provided value';
+  
+  let message = `Invalid ${fieldName} format`;
+  if (fieldName.includes('Id') || fieldName.includes('_id')) {
+    message = `Invalid ID format. Please provide a valid ${fieldName.replace('Id', ' ID').replace('_id', ' ID')}`;
+  }
+  
   return {
     error: 'Invalid input',
-    message: `Invalid ${error.path || 'field'}: ${error.value}`,
+    message,
+    details: [{
+      field: fieldName,
+      message: `The value "${value}" is not a valid format for ${fieldName}`,
+    }],
   };
 };
 
@@ -151,7 +194,7 @@ export const errorHandler = (
     statusCode = 400;
     errorResponse = {
       error: 'Invalid JSON',
-      message: 'The request body contains invalid JSON.',
+      message: 'The request body contains invalid JSON. Please check your request format and try again.',
     };
   }
   // Handle JWT errors
@@ -159,14 +202,14 @@ export const errorHandler = (
     statusCode = 401;
     errorResponse = {
       error: 'Invalid token',
-      message: 'Invalid or malformed token',
+      message: 'The provided authentication token is invalid or malformed. Please log in again.',
     };
   }
   else if (err.name === 'TokenExpiredError') {
     statusCode = 401;
     errorResponse = {
       error: 'Token expired',
-      message: 'Token has expired',
+      message: 'Your session has expired. Please refresh your token or log in again.',
     };
   }
   // Handle unknown errors

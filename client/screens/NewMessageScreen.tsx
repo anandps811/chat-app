@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSearchUsers, useGetOrCreateChat } from '../hooks';
+import { sanitizeSearchQuery } from '../utils/sanitization';
 
 interface Contact {
   id: string;
@@ -23,9 +24,22 @@ const NewMessageScreen: React.FC = () => {
   const handleContactSelect = async (contactId: string) => {
     createChatMutation.mutate(contactId, {
       onSuccess: (chat) => {
-        // Extract chatId from the chat object (Mongoose returns _id)
-        const chatId = chat?._id || chat?.id || chat;
-        const chatIdString = typeof chatId === 'string' ? chatId : chatId?.toString();
+        // Extract chatId - use chatId, id, or _id in that order
+        const chatData = chat as { chatId?: unknown; id?: unknown; _id?: unknown };
+        
+        // Helper to extract ID from various formats
+        const extractId = (id: unknown): string | null => {
+          if (!id) return null;
+          if (typeof id === 'string') return id;
+          if (typeof id === 'object') {
+            if ('toString' in id && typeof (id as { toString: () => string }).toString === 'function') {
+              return (id as { toString: () => string }).toString();
+            }
+          }
+          return String(id);
+        };
+        
+        const chatIdString = extractId(chatData.chatId) || extractId(chatData.id) || extractId(chatData._id);
         
         if (chatIdString) {
           console.log('Chat created successfully, chatId:', chatIdString);
@@ -55,17 +69,6 @@ const NewMessageScreen: React.FC = () => {
       avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD7rrLbfeXQlPbyA-xLwbZ0yB1vTDzinLRakHl_fcrUZcmOZnjJgldHO4wh_IaNNVO72WgSSG6OnO1azQn-qezNL8Ub7YdTIQfqXkfYhOa6x7KEC375i7nUOW0I_WENZt59XKZkQCZJ3BVotPatOj6e-Sz_tfunwNroUQjEujByGfGQ0fHroQFgPVKPvWU3pVFoIW2njMGzciSP5iSh6FrBLqeASXZNxkX6MxG2YpmGlHBLqWXx8gCpdUfaMsLgcDWyQeah_GzasqJk' 
     }
   ];
-
-  const allContacts: Record<string, Contact[]> = {
-    'A': [
-      { id: 'a1', name: 'Abigail Adams', initials: 'AA' },
-      { id: 'a2', name: 'Alistair Thorne', avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDnxHE1etMulMAmiZMQQErcSf1W5-2YXqhKSIdM5Rfc9sFzO3DMhM7lnVj7Q5dnUijkHZyNH61Avc3cF0vN_ksTBbYmYVF7dyYeZbf-XBgpSxLeZKfhHuZQwR1utbbiuYDwhmDlLj6FmMUjM4qkKk9zrijJa_kkHR0sAd4IRb4ld2xl2p2DSk44MFW5JtaBM6whqodxleHxsOHptkcMrDyVmsMaOlOMKkjNSXWzMbgMm815U6jVUQECn7IDMrB58IjT9aXeMOJT48sI' }
-    ],
-    'B': [
-      { id: 'b1', name: 'Beatrice Vane', avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBBKCI_Pts2m23O_p_P16GUoApSKoFLYgZVdMk30IyohrGBQxfLRAZq5ngaSa1eonaUeM3xvJ9TczassrQ1MtPJPqetWqiizUTuSUYt6dGsBZlifEjz6Y5QF2_gqsyZH8iyx7EaEsDE7nHbCEie-UzrCh1Xop3Ps574r7PkWtWHY7yC3dyKY3Nohtp7ok96bCWZe-SZdByJngpAYFoczmFxsw4mMkC_HMgd2Z39zGZ3VCF5zvAJpS73XN_NyZdF4EMBprSg7Yn4035z' },
-      { id: 'b2', name: 'Byron Wallace', initials: 'BW' }
-    ]
-  };
 
 
   return (
@@ -118,7 +121,10 @@ const NewMessageScreen: React.FC = () => {
               placeholder="Type a name or email..." 
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                const sanitized = sanitizeSearchQuery(e.target.value);
+                setSearchQuery(sanitized);
+              }}
             />
             {(isLoading || createChatMutation.isPending) && (
               <span className="material-symbols-outlined text-charcoal/60 animate-spin mr-3 text-lg md:text-xl">refresh</span>

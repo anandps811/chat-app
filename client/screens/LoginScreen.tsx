@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { validateEmailOrPhone } from '../utils/validation';
+import { sanitizeEmail, sanitizePhoneNumber } from '../utils/sanitization';
 
 const LoginScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -8,31 +10,68 @@ const LoginScreen: React.FC = () => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [identifierError, setIdentifierError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Only show loading if loading is true AND no error is set
+  const showLoading = isLoading && !error;
 
   // Background image placeholder for consistency with the Welcome screen pattern
   const bgImg = "https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&q=80&w=1000";
 
   const handleLogin = async () => {
-    if (!identifier || !password) {
-      setError('Please enter both email/phone and password');
-      return;
+    // Clear previous errors
+    setError('');
+    setIdentifierError('');
+    setPasswordError('');
+
+    // Validate inputs - don't proceed if validation fails
+    const identifierValidation = validateEmailOrPhone(identifier);
+    if (!identifierValidation.isValid) {
+      setIdentifierError(identifierValidation.error || 'Invalid email or phone number');
+      setIsLoading(false); // Ensure loading is false
+      return; // Return early, no loading state
     }
 
+    if (!password || password.trim().length === 0) {
+      setPasswordError('Password is required');
+      setIsLoading(false); // Ensure loading is false
+      return; // Return early, no loading state
+    }
+
+    // Sanitize inputs
+    const sanitizedIdentifier = identifier.includes('@')
+      ? sanitizeEmail(identifier)
+      : sanitizePhoneNumber(identifier);
+    const sanitizedPassword = password.trim();
+
+    // Only set loading state after validation passes
     setIsLoading(true);
+    // Clear any previous errors when starting login
     setError('');
 
     try {
-      const result = await login(identifier, password);
+      const result = await login(sanitizedIdentifier, sanitizedPassword);
+      
       if (result.success) {
+        // Clear loading on success before navigation
+        setIsLoading(false);
         navigate('/chats');
-      } else {
-        setError(result.error || 'Login failed. Please try again.');
+        return; // Exit early on success
       }
-    } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
-    } finally {
+      
+      // If not successful, clear loading and show error message immediately
       setIsLoading(false);
+      const errorMessage = result.error || 'Login failed. Please check your credentials and try again.';
+      setError(errorMessage);
+      console.log('Login failed, error:', errorMessage);
+    } catch (err) {
+      // Clear loading immediately on error
+      setIsLoading(false);
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.';
+      setError(errorMessage);
+      console.error('Login error:', err);
     }
   };
 
@@ -84,25 +123,55 @@ const LoginScreen: React.FC = () => {
                 Email or Mobile Number
               </p>
               <input 
-                className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white/50 h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:bg-white focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none" 
+                className={`flex w-full rounded-lg text-charcoal border h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:bg-white focus:ring-1 transition-all outline-none ${
+                  identifierError 
+                    ? 'border-red-500 bg-red-50/50 focus:ring-red-500 focus:border-red-500' 
+                    : 'border-charcoal/10 bg-white/50 focus:ring-primary focus:border-primary'
+                }`}
                 placeholder="e.g. name@email.com" 
                 type="text"
                 value={identifier}
-                onChange={(e) => { setIdentifier(e.target.value); setError(''); }}
+                onChange={(e) => { 
+                  setIdentifier(e.target.value); 
+                  setError(''); 
+                  setIdentifierError('');
+                }}
+                onBlur={() => {
+                  if (identifier.trim()) {
+                    const validation = validateEmailOrPhone(identifier);
+                    if (!validation.isValid) {
+                      setIdentifierError(validation.error || '');
+                    }
+                  }
+                }}
               />
+              {identifierError && (
+                <p className="text-red-500 text-xs mt-1 px-1">{identifierError}</p>
+              )}
             </div>
             <div className="flex flex-col w-full">
               <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-2 md:pb-3 px-1">
                 Password
               </p>
               <input 
-                className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white/50 h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:bg-white focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none" 
+                className={`flex w-full rounded-lg text-charcoal border h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:bg-white focus:ring-1 transition-all outline-none ${
+                  passwordError 
+                    ? 'border-red-500 bg-red-50/50 focus:ring-red-500 focus:border-red-500' 
+                    : 'border-charcoal/10 bg-white/50 focus:ring-primary focus:border-primary'
+                }`}
                 placeholder="Enter your password" 
                 type="password"
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                onChange={(e) => { 
+                  setPassword(e.target.value); 
+                  setError(''); 
+                  setPasswordError('');
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
               />
+              {passwordError && (
+                <p className="text-red-500 text-xs mt-1 px-1">{passwordError}</p>
+              )}
             </div>
           </div>
 
@@ -116,11 +185,11 @@ const LoginScreen: React.FC = () => {
           {/* Action - Original Style Button */}
           <div className="mt-6 md:mt-8 lg:mt-10">
             <button 
-              disabled={!identifier || !password || isLoading}
+              disabled={!identifier || !password || showLoading}
               onClick={handleLogin}
               className="w-full bg-charcoal text-ivory h-12 md:h-14 lg:h-16 rounded-lg font-display font-bold text-base md:text-lg lg:text-xl hover:opacity-90 transition-opacity shadow-lg shadow-charcoal/10 disabled:opacity-50"
             >
-              {isLoading ? 'Logging in...' : 'Continue'}
+              {showLoading ? 'Logging in...' : 'Continue'}
             </button>
           </div>
 

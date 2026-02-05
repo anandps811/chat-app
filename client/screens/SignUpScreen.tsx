@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { validateName, validateEmail, validatePhoneNumber, validatePassword } from '../utils/validation';
+import { sanitizeName, sanitizeEmail, sanitizePhoneNumber } from '../utils/sanitization';
 
 const SignUpScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -10,32 +12,57 @@ const SignUpScreen: React.FC = () => {
   const [mobileNumber, setMobileNumber] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [mobileError, setMobileError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const bgImg = "https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&q=80&w=1000";
 
   const handleSignUp = async () => {
-    if (!name || !email || !mobileNumber || !password) {
-      setError('Please fill in all fields');
+    // Clear previous errors
+    setError('');
+    setNameError('');
+    setEmailError('');
+    setMobileError('');
+    setPasswordError('');
+
+    // Validate all inputs
+    const nameValidation = validateName(name);
+    if (!nameValidation.isValid) {
+      setNameError(nameValidation.error || 'Invalid name');
       return;
     }
 
-    const cleanMobile = mobileNumber.replace(/\D/g, '');
-    if (cleanMobile.length !== 10) {
-      setError('Mobile number must be 10 digits');
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.isValid) {
+      setEmailError(emailValidation.error || 'Invalid email');
       return;
     }
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+    const phoneValidation = validatePhoneNumber(mobileNumber);
+    if (!phoneValidation.isValid) {
+      setMobileError(phoneValidation.error || 'Invalid phone number');
       return;
     }
+
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      setPasswordError(passwordValidation.error || 'Invalid password');
+      return;
+    }
+
+    // Sanitize inputs
+    const sanitizedName = sanitizeName(name);
+    const sanitizedEmail = sanitizeEmail(email);
+    const sanitizedMobile = sanitizePhoneNumber(mobileNumber);
+    const sanitizedPassword = password.trim(); // Password shouldn't be sanitized too much
 
     setIsLoading(true);
-    setError('');
 
     try {
-      const result = await signup(name, email, cleanMobile, password);
+      const result = await signup(sanitizedName, sanitizedEmail, sanitizedMobile, sanitizedPassword);
       if (result.success) {
         navigate('/profile-setup');
       } else {
@@ -97,46 +124,106 @@ const SignUpScreen: React.FC = () => {
             <div className="flex flex-col w-full">
               <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-1 md:pb-2 px-1">Full Name</p>
               <input 
-                className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 focus:ring-primary outline-none transition-all" 
+                className={`flex w-full rounded-lg text-charcoal border h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 outline-none transition-all ${
+                  nameError 
+                    ? 'border-red-500 bg-red-50/50 focus:ring-red-500 focus:border-red-500' 
+                    : 'border-charcoal/10 bg-white focus:ring-primary'
+                }`}
                 placeholder="Evelyn Montgomery" 
                 type="text"
                 value={name}
-                onChange={(e) => { setName(e.target.value); setError(''); }}
+                onChange={(e) => { setName(e.target.value); setError(''); setNameError(''); }}
+                onBlur={() => {
+                  if (name.trim()) {
+                    const validation = validateName(name);
+                    if (!validation.isValid) {
+                      setNameError(validation.error || '');
+                    }
+                  }
+                }}
               />
+              {nameError && (
+                <p className="text-red-500 text-xs mt-1 px-1">{nameError}</p>
+              )}
             </div>
 
             <div className="flex flex-col w-full">
               <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-1 md:pb-2 px-1">Email Address</p>
               <input 
-                className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 focus:ring-primary outline-none transition-all" 
+                className={`flex w-full rounded-lg text-charcoal border h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 outline-none transition-all ${
+                  emailError 
+                    ? 'border-red-500 bg-red-50/50 focus:ring-red-500 focus:border-red-500' 
+                    : 'border-charcoal/10 bg-white focus:ring-primary'
+                }`}
                 placeholder="evelyn@aesthetic.com" 
                 type="email"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); setError(''); }}
+                onChange={(e) => { setEmail(e.target.value); setError(''); setEmailError(''); }}
+                onBlur={() => {
+                  if (email.trim()) {
+                    const validation = validateEmail(email);
+                    if (!validation.isValid) {
+                      setEmailError(validation.error || '');
+                    }
+                  }
+                }}
               />
+              {emailError && (
+                <p className="text-red-500 text-xs mt-1 px-1">{emailError}</p>
+              )}
             </div>
 
             <div className="flex flex-col w-full">
               <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-1 md:pb-2 px-1">Mobile Number</p>
               <input 
-                className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 focus:ring-primary outline-none transition-all" 
+                className={`flex w-full rounded-lg text-charcoal border h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 outline-none transition-all ${
+                  mobileError 
+                    ? 'border-red-500 bg-red-50/50 focus:ring-red-500 focus:border-red-500' 
+                    : 'border-charcoal/10 bg-white focus:ring-primary'
+                }`}
                 placeholder="1234567890" 
                 type="tel"
                 value={mobileNumber}
-                onChange={(e) => { setMobileNumber(e.target.value); setError(''); }}
+                onChange={(e) => { setMobileNumber(e.target.value); setError(''); setMobileError(''); }}
+                onBlur={() => {
+                  if (mobileNumber.trim()) {
+                    const validation = validatePhoneNumber(mobileNumber);
+                    if (!validation.isValid) {
+                      setMobileError(validation.error || '');
+                    }
+                  }
+                }}
               />
+              {mobileError && (
+                <p className="text-red-500 text-xs mt-1 px-1">{mobileError}</p>
+              )}
             </div>
 
             <div className="flex flex-col w-full">
               <p className="text-charcoal/80 text-sm md:text-base font-bold serif-italic leading-normal pb-1 md:pb-2 px-1">Password</p>
               <input 
-                className="flex w-full rounded-lg text-charcoal border border-charcoal/10 bg-white h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 focus:ring-primary outline-none transition-all" 
+                className={`flex w-full rounded-lg text-charcoal border h-12 md:h-14 lg:h-16 placeholder:text-charcoal/30 px-4 md:px-5 lg:px-6 text-sm md:text-base lg:text-lg font-sans focus:ring-1 outline-none transition-all ${
+                  passwordError 
+                    ? 'border-red-500 bg-red-50/50 focus:ring-red-500 focus:border-red-500' 
+                    : 'border-charcoal/10 bg-white focus:ring-primary'
+                }`}
                 placeholder="Enter password (min 8 chars)" 
                 type="password"
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                onChange={(e) => { setPassword(e.target.value); setError(''); setPasswordError(''); }}
+                onBlur={() => {
+                  if (password.trim()) {
+                    const validation = validatePassword(password);
+                    if (!validation.isValid) {
+                      setPasswordError(validation.error || '');
+                    }
+                  }
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && handleSignUp()}
               />
+              {passwordError && (
+                <p className="text-red-500 text-xs mt-1 px-1">{passwordError}</p>
+              )}
             </div>
           </div>
 

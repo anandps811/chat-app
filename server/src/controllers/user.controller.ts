@@ -5,7 +5,12 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import {
   UnauthorizedError,
   NotFoundError,
+  ValidationError,
 } from '../utils/errors.js';
+import {
+  updateProfileSchema,
+  searchUsersQuerySchema,
+} from '../validations/chatValidation.js';
 
 /**
  * Update user profile
@@ -13,15 +18,21 @@ import {
 export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
   const currentUserId = authReq.user?.userId;
-  const { name, email, bio } = req.body;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
+
+  // Validate body
+  const bodyValidation = updateProfileSchema.safeParse(req.body);
+  if (!bodyValidation.success) {
+    throw new ValidationError(bodyValidation.error.issues[0]?.message || 'Invalid profile data. Please check the provided information and try again.');
+  }
+  const { name, email, bio } = bodyValidation.data;
 
   const user = await User.findById(currentUserId);
   if (!user) {
-    throw new NotFoundError('User not found');
+    throw new NotFoundError('User account not found. Your account may have been deleted. Please contact support.');
   }
 
   // Update fields if provided
@@ -34,7 +45,7 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
 
   res.json({
     user: {
-      id: user._id,
+      id: user._id.toString(),
       name: user.name,
       email: user.email,
     },
@@ -47,16 +58,19 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
 export const searchUsers = asyncHandler(async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
   const currentUserId = authReq.user?.userId;
-  const { q } = req.query;
 
   if (!currentUserId) {
-    throw new UnauthorizedError('Unauthorized');
+    throw new UnauthorizedError('Authentication required. Please log in to access this resource.');
   }
 
-  if (!q || typeof q !== 'string') {
+  // Validate query params
+  const queryValidation = searchUsersQuerySchema.safeParse(req.query);
+  if (!queryValidation.success) {
+    // Return empty array if query is invalid or missing (graceful degradation)
     res.json({ users: [] });
     return;
   }
+  const { q } = queryValidation.data;
 
   // Search users by name, email, or mobile number (excluding current user)
   const users = await User.find({
