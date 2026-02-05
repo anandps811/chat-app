@@ -22,6 +22,7 @@ export const protect = (
   const token = authHeader.split(" ")[1];
 
   try {
+    const secret = process.env.ACCESS_TOKEN_SECRET || env.JWT_SECRET;
     const decoded = jwt.verify(
       token,
       env.JWT_SECRET

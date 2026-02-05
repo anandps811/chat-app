@@ -8,4 +8,8 @@ const router = Router();
 router.put("/profile", authenticateToken, updateProfile);
 router.get("/search", authenticateToken, searchUsers);
 
+// User routes (require authentication)
+router.put("/users/profile", authenticateToken, updateProfile);
+router.get("/users/search", authenticateToken, searchUsers);
+
 export default router;
