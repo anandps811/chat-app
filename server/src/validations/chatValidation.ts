@@ -42,8 +42,8 @@ export const chatMessageIdParamsSchema = z.object({
  * Validation for pagination query parameters
  */
 export const paginationQuerySchema = z.object({
-  page: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1)).optional().default('1'),
-  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(100)).optional().default('50'),
+  page: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1)).optional().default(1),
+  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(100)).optional().default(50),
 });
 
 /**
