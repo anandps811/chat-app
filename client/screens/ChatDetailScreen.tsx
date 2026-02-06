@@ -21,7 +21,7 @@ const ChatDetailScreen: React.FC = () => {
   const [isContactOnline, setIsContactOnline] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  
+
   const { data, isLoading } = useMessages({ chatId: chatId || '', userId: user?.id });
   const sendMessageMutation = useSendMessage();
   const markAsReadMutation = useMarkMessagesAsRead();
@@ -119,10 +119,10 @@ const ChatDetailScreen: React.FC = () => {
 
   useEffect(() => {
     if (!chatId) return;
-    
+
     // Join chat room
     socketService.joinChat(chatId);
-    
+
     // Set up message listener
     const unsubscribeMessage = socketService.onMessage((data: SocketMessageEvent) => {
       const message = data.message;
@@ -132,16 +132,16 @@ const ChatDetailScreen: React.FC = () => {
         if (messageChatId === chatId) {
           queryClient.setQueryData<MessagesQueryData>(['messages', chatId], (oldData) => {
             if (!oldData) return oldData;
-            
+
             // Check if message already exists to prevent duplicates
             const messageExists = oldData.messages.some((msg) => msg.id === message.id) ||
-                                 oldData.rawMessages.some((msg) => msg.id === message.id);
-            
+              oldData.rawMessages.some((msg) => msg.id === message.id);
+
             if (messageExists) {
               // Message already exists, just return old data
               return oldData;
             }
-            
+
             const senderIdStr = extractSenderId(message.senderId);
             const newMessage: Message = {
               id: message.id,
@@ -149,7 +149,7 @@ const ChatDetailScreen: React.FC = () => {
               sender: senderIdStr === user?.id ? 'me' : 'them',
               time: new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             };
-            
+
             // Remove any temp messages with the same content (replace temp with real)
             const filteredMessages = oldData.messages.filter((msg) => {
               // Keep temp messages that don't match this message
@@ -158,7 +158,7 @@ const ChatDetailScreen: React.FC = () => {
               }
               return true;
             });
-            
+
             return {
               ...oldData,
               messages: [...filteredMessages, newMessage],
@@ -174,7 +174,7 @@ const ChatDetailScreen: React.FC = () => {
       // Refresh chat list when any chat is updated (both formatted and raw)
       queryClient.invalidateQueries({ queryKey: ['chats'] });
       queryClient.invalidateQueries({ queryKey: ['chats', 'raw'] });
-      
+
       // Don't invalidate messages for current chat - socket already handles it
       // This prevents duplicate messages from refetch + socket event
     });
@@ -260,7 +260,7 @@ const ChatDetailScreen: React.FC = () => {
       const unsubscribeMessageSent = socketService.onMessageSent((data) => {
         if (messageSentHandled) return; // Prevent duplicate handling
         messageSentHandled = true;
-        
+
         if (data.wasNewChat && data.chatId !== chatId) {
           // Chat was just created with a new ID, navigate to it
           navigate(`/chats/${data.chatId}`, { replace: true });
@@ -269,7 +269,7 @@ const ChatDetailScreen: React.FC = () => {
       });
 
       socketService.sendMessage(chatId, textToSend);
-      
+
       // Cleanup listener after a timeout (in case event doesn't fire)
       setTimeout(() => {
         if (!messageSentHandled) {
@@ -278,8 +278,8 @@ const ChatDetailScreen: React.FC = () => {
       }, 5000);
     } else {
       // For HTTP requests, use the mutation hook which handles optimistic updates
-      sendMessageMutation.mutate({ 
-        chatId, 
+      sendMessageMutation.mutate({
+        chatId,
         content: textToSend,
         userId: user?.id,
       });
@@ -316,31 +316,25 @@ const ChatDetailScreen: React.FC = () => {
 
   return (
     <div className="relative flex h-screen w-full flex-col bg-ivory text-charcoal overflow-hidden font-sans">
-      
+
       {/* Global Branding Header */}
       <header className="z-20 flex w-full flex-col border-b border-charcoal/5 bg-ivory/80 backdrop-blur-md">
-        <div className="flex items-center gap-4 px-6 py-4 md:px-12 lg:px-20">
+        <div className="flex items-center justify-between gap-4 px-6 py-4 md:px-12 lg:px-20">
           {/* Left: Branding */}
 
-          
+<div className="flex items-center gap-4 lg:gap-8">
           <div className="flex items-center gap-4 lg:gap-8">
-            <button 
+            <button
               onClick={() => navigate('/chats')}
               className="flex items-center justify-center transition-opacity hover:opacity-50"
             >
               <span className="material-symbols-outlined text-xl md:text-2xl">arrow_back_ios</span>
             </button>
-            <button 
-              onClick={handleDeleteClick}
-              disabled={deleteChatMutation.isPending}
-              className="flex items-center justify-center transition-opacity hover:opacity-50 text-red-500 disabled:opacity-30"
-              title="Delete chat"
-            >
-              <span className="material-symbols-outlined text-xl md:text-2xl">delete</span>
-            </button>
+
           </div>
-   {/* Right: Profile Avatar */}
-   <div className="flex items-center justify-end">
+          {/* Right: Profile Avatar */}
+          <div className="flex justify-center text-center gap-5">
+          <div className="flex items-center justify-end">
             <div className="size-10 lg:size-12 overflow-hidden rounded-full border border-charcoal/10 bg-white shadow-sm">
               {contactAvatar ? (
                 <img src={contactAvatar} className="h-full w-full object-cover grayscale-[30%]" alt={contactName} />
@@ -363,14 +357,23 @@ const ChatDetailScreen: React.FC = () => {
               </p>
             </div>
           </div>
+          </div>
+          </div>
+          <button
+            onClick={handleDeleteClick}
+            disabled={deleteChatMutation.isPending}
+            className="flex items-center justify-center text-left transition-opacity hover:opacity-50 text-red-500 disabled:opacity-30"
+            title="Delete chat"
+          >
+            <span className="material-symbols-outlined text-xl md:text-2xl">delete</span>
+          </button>
 
-       
         </div>
       </header>
 
       {/* Message Thread */}
-      <main 
-        ref={scrollRef} 
+      <main
+        ref={scrollRef}
         className="flex-1 overflow-y-auto px-6 py-8 md:px-20 lg:px-32 xl:px-64 custom-scrollbar"
       >
         {isLoading ? (
@@ -382,12 +385,11 @@ const ChatDetailScreen: React.FC = () => {
             {messages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`flex flex-col max-w-[85%] md:max-w-[70%] lg:max-w-[60%] ${msg.sender === 'me' ? 'items-end' : 'items-start'}`}>
-                  <div 
-                    className={`px-5 py-3 md:px-7 md:py-4 rounded-3xl text-sm md:text-base leading-relaxed shadow-sm transition-all ${
-                      msg.sender === 'me' 
-                        ? 'bg-charcoal text-ivory rounded-tr-none' 
+                  <div
+                    className={`px-5 py-3 md:px-7 md:py-4 rounded-3xl text-sm md:text-base leading-relaxed shadow-sm transition-all ${msg.sender === 'me'
+                        ? 'bg-charcoal text-ivory rounded-tr-none'
                         : 'bg-white/70 text-charcoal border border-charcoal/5 rounded-tl-none'
-                    }`}
+                      }`}
                   >
                     {msg.text}
                   </div>
@@ -404,19 +406,19 @@ const ChatDetailScreen: React.FC = () => {
       {/* Input Section - Floating Aesthetic */}
       <footer className="w-full px-6 py-8 md:px-20 lg:px-32 xl:px-64">
         <div className="mx-auto flex max-w-5xl items-center gap-4">
-          <div className="flex flex-1 items-center rounded-full border border-charcoal/10 bg-white/40 px-6 backdrop-blur-sm transition-all focus-within:bg-white focus-within:shadow-md">
-            <input 
-              type="text" 
+          <div className="flex flex-1 items-center rounded-full border border-charcoal/60 bg-white/40 px-6 backdrop-blur-sm transition-all focus-within:bg-white focus-within:shadow-md">
+            <input
+              type="text"
               value={inputText}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputText(e.target.value)}
               onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSend()}
-              placeholder="Message beautifully..." 
-              className="flex-1 bg-transparent py-4 text-sm md:text-base outline-none placeholder:text-charcoal/20"
+              placeholder="Message beautifully..."
+              className="flex-1 bg-transparent py-4 text-sm md:text-base outline-none placeholder:text-charcoal/20 border-none focus:outline-none focus:ring-0"
             />
-            <button 
+            <button
               disabled={!inputText.trim()}
               onClick={handleSend}
-              className="ml-2 text-charcoal transition-all hover:scale-110 hover:opacity-70 disabled:opacity-10"
+              className="ml-2 text-charcoal/40 transition-all hover:scale-110 hover:opacity-70 disabled:opacity-60"
             >
               <span className="material-symbols-outlined text-2xl font-light">send</span>
             </button>
@@ -435,8 +437,8 @@ const ChatDetailScreen: React.FC = () => {
             {deleteChatMutation.isError && (
               <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
                 <p className="text-red-600 text-sm">
-                  {deleteChatMutation.error instanceof Error 
-                    ? deleteChatMutation.error.message 
+                  {deleteChatMutation.error instanceof Error
+                    ? deleteChatMutation.error.message
                     : 'Failed to delete chat'}
                 </p>
               </div>

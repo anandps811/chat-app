@@ -75,7 +75,7 @@ const ProfileSetupScreen: React.FC = () => {
   };
 
   return (
-    <div className="relative flex min-h-screen w-full flex-col bg-ivory p-4 md:p-6 lg:p-8 xl:p-12 text-charcoal transition-all duration-300">
+    <div className="relative flex min-h-screen w-full flex-col  bg-ivory p-4 md:p-6 lg:p-8 xl:p-12 text-charcoal transition-all duration-300">
       {/* Decorative Blur Elements */}
       <div className="fixed top-0 right-0 w-32 h-32 md:w-48 md:h-48 lg:w-64 lg:h-64 bg-primary/5 rounded-full -mr-16 -mt-16 md:-mr-24 md:-mt-24 lg:-mr-32 lg:-mt-32 blur-3xl pointer-events-none"></div>
       <div className="fixed bottom-0 left-0 w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80 bg-primary/5 rounded-full -ml-24 -mb-24 md:-ml-32 md:-mb-32 lg:-ml-40 lg:-mb-40 blur-3xl pointer-events-none"></div>
