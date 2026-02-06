@@ -87,8 +87,8 @@ const ChatListSidebar: React.FC = () => {
     <div className="relative flex h-full w-full flex-col bg-ivory overflow-hidden">
       {/* Mobile Navigation (Hidden on Desktop) */}
       <nav className="lg:hidden flex items-center pt-6 px-6 justify-between shrink-0">
-        <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal">
-          Collection
+        <div className="text-[14px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal">
+          Chatly
         </div>
         <div className="flex items-center gap-2">
           <button 
@@ -117,8 +117,8 @@ const ChatListSidebar: React.FC = () => {
 
       {/* Desktop Header (Hidden on Mobile) */}
       <div className="hidden lg:flex flex-col px-6 pt-6 pb-4 border-b border-charcoal/5 shrink-0">
-        <div className="text-[10px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal mb-4">
-          Collection
+        <div className="text-[14px] font-display uppercase tracking-[0.4em] opacity-60 text-charcoal mb-4">
+          Chatly
         </div>
         <div className="flex items-center justify-between">
           <h1 className="tracking-tight text-2xl font-bold leading-tight serif-italic text-charcoal">

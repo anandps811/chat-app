@@ -55,20 +55,7 @@ const NewMessageScreen: React.FC = () => {
     });
   };
 
-  const suggested: Contact[] = [
-    { 
-      id: 's1', 
-      name: 'Adeline Montgomery', 
-      subtitle: 'Recently active', 
-      avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBI9bMnOGAM3kHQKCIOyxEml-5hHNHl4Yf81oZ7tvKXXT8Xl5iInJhFajzy-IBrrDJdQHTkaPIw2bSowspgtuNzrn-PnFQ7MrcH1whtSWE_p2VpwDqJvHkqrabSi_TefygJdfKireDf-p98x_Q6ybDBfIAXBIOGCQ8NSYDV3a2i9MtaXJPnmNz3hbsL0EcuXpIe0fa9HBBGFFieUKpUShcF0kvDImhcbDBEqAsirdcBlVp5Qka4MHEQuap_TV3UDM2gdQtqrFVeubvH' 
-    },
-    { 
-      id: 's2', 
-      name: 'Arthur Sinclair', 
-      subtitle: 'Mobile', 
-      avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD7rrLbfeXQlPbyA-xLwbZ0yB1vTDzinLRakHl_fcrUZcmOZnjJgldHO4wh_IaNNVO72WgSSG6OnO1azQn-qezNL8Ub7YdTIQfqXkfYhOa6x7KEC375i7nUOW0I_WENZt59XKZkQCZJ3BVotPatOj6e-Sz_tfunwNroUQjEujByGfGQ0fHroQFgPVKPvWU3pVFoIW2njMGzciSP5iSh6FrBLqeASXZNxkX6MxG2YpmGlHBLqWXx8gCpdUfaMsLgcDWyQeah_GzasqJk' 
-    }
-  ];
+
 
 
   return (
@@ -161,7 +148,7 @@ const NewMessageScreen: React.FC = () => {
           </>
         ) : (
           <div className="flex flex-col gap-2 md:gap-3">
-            {suggested.map(c => (
+            {/* {suggested.map(c => (
               <div 
                 key={c.id} 
                 onClick={() => handleContactSelect(c.id)}
@@ -169,7 +156,7 @@ const NewMessageScreen: React.FC = () => {
               >
                 <ContactItem contact={c} />
               </div>
-            ))}
+            ))} */}
           </div>
         )}
       </div>
