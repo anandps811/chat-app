@@ -352,9 +352,9 @@ const ChatDetailScreen: React.FC = () => {
             </h1>
             <div className="mt-1 flex items-center gap-1.5">
               <div className={`size-1.5 rounded-full ${isContactOnline ? 'bg-[#0bda5b]' : 'bg-charcoal/30'}`}></div>
-              <p className="font-display text-[8px] md:text-[9px] uppercase tracking-widest opacity-60">
+              {/* <p className="font-display text-[8px] md:text-[9px] uppercase tracking-widest opacity-60">
                 {isContactOnline ? 'Active Now' : 'Offline'}
-              </p>
+              </p> */}
             </div>
           </div>
           </div>
