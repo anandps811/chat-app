@@ -348,7 +348,7 @@ const ChatDetailScreen: React.FC = () => {
           {/* Center: Contact Identity */}
           <div className="flex flex-col items-center text-center">
             <h1 className="serif-italic text-lg md:text-2xl lg:text-3xl font-bold leading-none">
-              {contactName || 'User'}
+              {contactName || ''}
             </h1>
             <div className="mt-1 flex items-center gap-1.5">
               <div className={`size-.5 rounded-full ${isContactOnline ? 'bg-[#0bda5b]' : 'bg-charcoal/30'}`}></div>
